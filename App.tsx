@@ -16,7 +16,6 @@ const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Fixed: window.Telegram is now typed
     if (window.Telegram?.WebApp) {
       window.Telegram.WebApp.ready();
       window.Telegram.WebApp.expand();
@@ -27,7 +26,10 @@ const App: React.FC = () => {
     const init = async () => {
       try {
         const userData = await mockApi.getUserProfile();
-        const statusData = await mockApi.getMiningStatus(userData.telegram_id);
+        // Fallback check to ensure we have a valid user ID for status fetch
+        const userId = userData?.telegram_id || 123456;
+        const statusData = await mockApi.getMiningStatus(userId);
+        
         setUser(userData);
         setStatus(statusData);
       } catch (err: any) {
@@ -51,7 +53,9 @@ const App: React.FC = () => {
   const handleTap = async (count: number) => {
     if (!status || status.energy < count) return;
     
-    const bpEarned = Math.floor(count * (status.cultural_multiplier || 1));
+    const multiplier = status.cultural_multiplier || 1;
+    const bpEarned = Math.floor(count * multiplier);
+    
     setUser(prev => prev ? { ...prev, bp_balance: prev.bp_balance + bpEarned } : null);
     setStatus(prev => prev ? { ...prev, energy: prev.energy - count } : null);
 
@@ -66,7 +70,7 @@ const App: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
         <div className="w-16 h-16 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin"></div>
-        <p className="mt-6 text-slate-400 font-bold tracking-widest uppercase text-xs animate-pulse">Initializing BalochCoin</p>
+        <p className="mt-6 text-slate-400 font-bold tracking-widest uppercase text-xs animate-pulse tracking-widest">Entering BalochCoin</p>
       </div>
     );
   }

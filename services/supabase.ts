@@ -4,7 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || '';
 
-// Create a placeholder that won't crash the app on import if keys are missing
+// Initialize client only if valid credentials are provided
 export const supabase = (supabaseUrl && supabaseAnonKey && supabaseUrl !== 'undefined' && supabaseUrl !== '') 
   ? createClient(supabaseUrl, supabaseAnonKey)
   : null;
@@ -52,7 +52,7 @@ export const api = {
       if (error) throw error;
       return user;
     } catch (e) {
-      console.error("Supabase error in getOrCreateUser:", e);
+      console.error("Supabase getOrCreateUser error:", e);
       throw new Error("DB_OFFLINE");
     }
   },
@@ -78,7 +78,6 @@ export const api = {
             referrer_id: referrer.telegram_id,
             referred_id: userId
           }]);
-          // Reward the referrer
           await supabase.rpc('reward_user', { t_id: referrer.telegram_id, bp: 5000, cbp: 0 });
           await this.sendBotNotification(referrer.telegram_id, `New ally joined! You earned *5,000 BP* 🪙`);
         }

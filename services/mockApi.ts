@@ -5,7 +5,6 @@ import { db } from './db';
 
 export const mockApi = {
   async getUserProfile(): Promise<User> {
-    // Fixed: window.Telegram is now typed via types.ts
     const tg = window.Telegram?.WebApp;
     const tgUser = tg?.initDataUnsafe?.user;
     
@@ -25,8 +24,10 @@ export const mockApi = {
       }
       return user;
     } catch (e) {
-      console.warn("DB offline or profile load failed, using local fallback.", e);
-      return db.getStore().user;
+      console.warn("Using local fallback profile:", e);
+      // Ensure we use the correct ID for the local store to maintain persistence
+      const localStore = db.getStore();
+      return { ...localStore.user, telegram_id: profile.id, username: profile.username };
     }
   },
 
@@ -44,13 +45,11 @@ export const mockApi = {
         cultural_multiplier: 1 + (culturalBp / 10000)
       };
     } catch (e) {
-      console.warn("Mining status load failed, using local fallback.");
       return db.getStore().status;
     }
   },
 
   async tap(taps: number): Promise<any> {
-    // Fixed: window.Telegram is now typed
     const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       let multiplier = 1;
@@ -71,7 +70,6 @@ export const mockApi = {
   },
 
   async getTasks(): Promise<CulturalTask[]> {
-    // Fixed: window.Telegram is now typed
     const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       return await api.getTasks(userId);
@@ -81,7 +79,6 @@ export const mockApi = {
   },
 
   async completeTask(taskId: number): Promise<any> {
-    // Fixed: window.Telegram is now typed
     const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       const allTasks = await this.getTasks();
