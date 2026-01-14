@@ -8,11 +8,17 @@ export const mockApi = {
     const tg = window.Telegram?.WebApp;
     const tgUser = tg?.initDataUnsafe?.user;
     
-    // Determine the actual ID. If outside TG and not production, fallback to 123456
-    const isProd = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+    // Check if we are in a Telegram environment by looking for the presence of the API
+    const isTelegramEnv = !!tg?.initData;
     
-    if (!tgUser && isProd) {
-      throw new Error("TELEGRAM_USER_REQUIRED");
+    if (!tgUser && isTelegramEnv) {
+      // If we are in TG but user is still null, we might be hitting a race condition
+      // The App.tsx level polling should prevent this, but we check again.
+      throw new Error("TELEGRAM_USER_PENDING");
+    }
+
+    if (!tgUser && !isTelegramEnv && window.location.hostname !== 'localhost') {
+       throw new Error("TELEGRAM_USER_REQUIRED");
     }
 
     const realId = tgUser?.id || 123456;
@@ -26,13 +32,13 @@ export const mockApi = {
     try {
       const user = await api.getOrCreateUser(profile.id, profile);
       
-      // Update local storage cache
+      // Cache returned user from Supabase (now contains real balance/level)
       const store = db.getStore(profile.id);
       db.saveStore({ ...store, user }, profile.id);
       
       return user;
     } catch (e) {
-      console.warn("Using local cache for user profile", realId);
+      console.warn("Supabase profile fetch failed, using local store for:", realId);
       const localStore = db.getStore(profile.id);
       return localStore.user;
     }
@@ -59,8 +65,8 @@ export const mockApi = {
   },
 
   async tap(taps: number): Promise<any> {
-    const tg = window.Telegram?.WebApp;
-    const userId = tg?.initDataUnsafe?.user?.id || 123456;
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const userId = tgUser?.id || 123456;
     
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
@@ -76,7 +82,8 @@ export const mockApi = {
   },
 
   async getTasks(): Promise<CulturalTask[]> {
-    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const userId = tgUser?.id || 123456;
     try {
       const tasks = await api.getTasks(userId);
       return tasks.length > 0 ? tasks : db.getStore(userId).tasks;
@@ -86,7 +93,8 @@ export const mockApi = {
   },
 
   async completeTask(taskId: number): Promise<any> {
-    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
+    const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+    const userId = tgUser?.id || 123456;
     const store = db.getStore(userId);
     const task = store.tasks.find((t: any) => t.id === taskId);
     

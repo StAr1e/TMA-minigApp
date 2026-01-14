@@ -24,6 +24,7 @@ export const api = {
 
   async getOrCreateUser(telegramId: number, profile: any) {
     try {
+      // First, try to find the user
       let { data: user, error } = await supabase
         .from('users')
         .select('*')
@@ -48,8 +49,7 @@ export const api = {
         
         if (createError) throw createError;
         
-        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your journey in BalochCoin begins.`);
-        
+        // Setup initial energy status
         try { 
           await supabase.from('mining_status').insert([{ 
             telegram_id: telegramId, 
@@ -58,13 +58,28 @@ export const api = {
             tap_value: 1 
           }]); 
         } catch (e) {}
+
+        // Notify user via Bot
+        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your journey in BalochCoin begins.`);
         
         return newUser;
       }
+      
+      // Update username if it changed in TG
+      if (user.username !== profile.username && profile.username) {
+         const { data: updatedUser } = await supabase
+            .from('users')
+            .update({ username: profile.username })
+            .eq('telegram_id', telegramId)
+            .select()
+            .single();
+         if (updatedUser) return updatedUser;
+      }
+
       return user;
     } catch (e: any) {
-      console.error("Supabase Error:", e.message);
-      throw new Error("DB_OFFLINE");
+      console.error("getOrCreateUser exception:", e.message);
+      throw e;
     }
   },
 
@@ -85,10 +100,11 @@ export const api = {
 
   async updateBalanceAndEnergy(telegramId: number, bpEarned: number, energyUsed: number) {
     try {
+      // Standardizes on your custom RPCs (make sure they exist in Supabase SQL editor)
       await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
       await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
     } catch (e) {
-      console.error("Sync failed", e);
+      console.error("Sync failed:", e);
     }
   },
 
@@ -117,22 +133,17 @@ export const api = {
     }
   },
 
-  // Fix: Added missing completeTask method to handle task completions in the backend
   async completeTask(telegramId: number, taskId: number, bpReward: number, culturalBpReward: number) {
     try {
-      const { error: completionError } = await supabase
+      await supabase
         .from('task_completions')
         .insert([{ user_id: telegramId, task_id: taskId }]);
       
-      if (completionError) throw completionError;
-
-      const { error: balanceError } = await supabase.rpc('add_cultural_rewards', {
+      await supabase.rpc('reward_user', {
         t_id: telegramId,
-        bp_earned: bpReward,
-        cbp_earned: culturalBpReward
+        bp: bpReward,
+        cbp: culturalBpReward
       });
-
-      if (balanceError) throw balanceError;
 
       return { success: true };
     } catch (e) {
