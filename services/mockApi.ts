@@ -3,43 +3,43 @@ import { User, MiningStatus, CulturalTask } from '../types';
 import { api, supabase } from './supabase';
 import { db } from './db';
 
+const IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
 export const mockApi = {
   async getUserProfile(): Promise<User> {
     const tg = window.Telegram?.WebApp;
+    // This is the CRITICAL source of truth for Telegram Mini Apps
     const tgUser = tg?.initDataUnsafe?.user;
     
-    // Check if we are in a Telegram environment by looking for the presence of the API
-    const isTelegramEnv = !!tg?.initData;
-    
-    if (!tgUser && isTelegramEnv) {
-      // If we are in TG but user is still null, we might be hitting a race condition
-      // The App.tsx level polling should prevent this, but we check again.
-      throw new Error("TELEGRAM_USER_PENDING");
-    }
-
-    if (!tgUser && !isTelegramEnv && window.location.hostname !== 'localhost') {
+    // If no Telegram user is found and we aren't in a dev environment, 
+    // we must block access as we cannot identify the user.
+    if (!tgUser && !IS_DEV) {
        throw new Error("TELEGRAM_USER_REQUIRED");
     }
 
+    // Use actual Telegram ID, fallback to mock ID only for local testing
     const realId = tgUser?.id || 123456;
     
     const profile = {
-      id: realId,
+      telegram_id: realId,
       username: tgUser?.username || tgUser?.first_name || `warrior_${realId}`,
       first_name: tgUser?.first_name || 'Warrior'
     };
 
     try {
-      const user = await api.getOrCreateUser(profile.id, profile);
+      // Sync with Supabase: This creates the user and mining record if missing
+      const user = await api.getOrCreateUser(profile.telegram_id, profile);
       
-      // Cache returned user from Supabase (now contains real balance/level)
-      const store = db.getStore(profile.id);
-      db.saveStore({ ...store, user }, profile.id);
+      // Update local persistent store for offline/cache capability
+      const store = db.getStore(profile.telegram_id);
+      db.saveStore({ ...store, user }, profile.telegram_id);
       
       return user;
     } catch (e) {
-      console.warn("Supabase profile fetch failed, using local store for:", realId);
-      const localStore = db.getStore(profile.id);
+      console.warn("Supabase profile sync failed, falling back to local cache:", e);
+      const localStore = db.getStore(profile.telegram_id);
+      // If we have nothing even in local storage, we must throw
+      if (!localStore.user.telegram_id) throw new Error("INITIALIZATION_FAILED");
       return localStore.user;
     }
   },
@@ -47,8 +47,16 @@ export const mockApi = {
   async getMiningStatus(userId: number): Promise<MiningStatus> {
     try {
       const status = await api.getMiningStatus(userId);
-      const { data } = await supabase.from('users').select('cultural_bp').eq('telegram_id', userId).maybeSingle();
-      const culturalBp = data?.cultural_bp || 0;
+      let culturalBp = 0;
+      
+      if (supabase) {
+        const { data } = await supabase
+          .from('users') 
+          .select('cultural_bp')
+          .eq('telegram_id', userId)
+          .maybeSingle();
+        culturalBp = data?.cultural_bp || 0;
+      }
       
       const enrichedStatus = {
         ...status,
@@ -71,7 +79,7 @@ export const mockApi = {
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
     
-    db.updateUser(userId, { bp_balance: store.user.bp_balance + bpEarned });
+    db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
     db.updateStatus(userId, { energy: Math.max(0, store.status.energy - taps) });
 
     try {
@@ -115,6 +123,12 @@ export const mockApi = {
   },
 
   async getLeaderboard() {
+    if (!supabase) {
+      return [
+        { username: 'Grand_Vizier', bp: 5000000, level: 100 },
+        { username: 'Sardar_Warrior', bp: 2000000, level: 80 }
+      ];
+    }
     try {
       const { data } = await supabase
         .from('users')
@@ -123,10 +137,7 @@ export const mockApi = {
         .limit(10);
       return (data || []).map(d => ({ username: d.username, bp: d.bp_balance, level: d.level }));
     } catch (e) {
-      return [
-        { username: 'Grand_Vizier', bp: 5000000, level: 100 },
-        { username: 'Sardar_Warrior', bp: 2000000, level: 80 }
-      ];
+      return [];
     }
   }
 };
