@@ -21,26 +21,23 @@ export const mockApi = {
     };
 
     try {
-      // Strict database sync: Add/Update the user in the 'users' table
-      const user = await api.getOrCreateUser(profile.telegram_id, profile);
+      // Upsert into real DB
+      const dbUser = await api.getOrCreateUser(profile.telegram_id, profile);
       
-      const store = db.getStore(profile.telegram_id);
-      db.saveStore({ ...store, user }, profile.telegram_id);
+      // Map DB columns to Frontend types
+      const user: User = {
+        telegram_id: dbUser.telegram_id,
+        username: dbUser.username,
+        bp_balance: dbUser.points || 0, // Map 'points' to 'bp_balance'
+        cultural_bp: dbUser.cultural_points || 0, // Map 'cultural_points' to 'cultural_bp'
+        level: dbUser.level || 1,
+        referral_code: dbUser.referral_code || ''
+      };
       
       return user;
     } catch (e) {
-      console.warn("Supabase handshake failed, using cache");
-      const localStore = db.getStore(profile.telegram_id);
-      if (localStore.user.telegram_id === realId) return localStore.user;
-      
-      return {
-        telegram_id: realId,
-        username: profile.username,
-        bp_balance: 0,
-        cultural_bp: 0,
-        level: 1,
-        referral_code: ''
-      };
+      const localStore = db.getStore(realId);
+      return localStore.user;
     }
   },
 
@@ -63,9 +60,6 @@ export const mockApi = {
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
     
-    db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
-    db.updateStatus(userId, { energy: Math.max(0, store.status.energy - taps) });
-
     // Sync to database
     api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(() => {});
     return { success: true };
@@ -75,24 +69,34 @@ export const mockApi = {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
     try {
-      const tasks = await api.getTasks(userId);
-      return tasks.length > 0 ? tasks : db.getStore(userId).tasks;
+      const dbTasks = await api.getTasks(userId);
+      // Map database task fields to frontend CulturalTask type
+      return dbTasks.map((t: any) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        bp_reward: t.reward,
+        cultural_bp_reward: t.cultural_flag ? 100 : 0, // Mock logic for cultural rewards
+        completed: t.completed,
+        type: t.type,
+        difficulty: 'medium',
+        category: 'general'
+      }));
     } catch (e) {
       return db.getStore(userId).tasks;
     }
   },
 
-  async completeTask(taskId: number): Promise<any> {
+  async completeTask(taskId: any): Promise<any> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
     try {
-      const store = db.getStore(userId);
-      const task = store.tasks.find((t: any) => t.id === taskId);
-      if (!task || task.completed) return { success: false };
-      
-      // Save information into database
-      const res = await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
-      return res;
+      // Find task to get reward values
+      const tasks = await this.getTasks();
+      const task = tasks.find(t => t.id === taskId);
+      if (!task) return { success: false };
+
+      return await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
     } catch (e) {
       return { success: false };
     }
@@ -103,14 +107,14 @@ export const mockApi = {
     try {
       const { data } = await supabase
         .from('users')
-        .select('username, bp_balance, level, photo_url')
-        .order('bp_balance', { ascending: false })
+        .select('username, points, avatar_url')
+        .order('points', { ascending: false })
         .limit(10);
       return (data || []).map(d => ({ 
         username: d.username, 
-        bp: d.bp_balance, 
-        level: d.level,
-        photo_url: d.photo_url 
+        bp: d.points || 0, 
+        level: 1,
+        photo_url: d.avatar_url 
       }));
     } catch (e) {
       return [];
