@@ -31,7 +31,7 @@ export const api = {
       const firstName = profile.first_name || 'Warrior';
       const photoUrl = profile.photo_url || '';
 
-      // Force upsert to save all information into the database immediately
+      // FORCE UPSERT: This ensures the user is DEFINITELY in the 'users' table
       const { data: user, error } = await supabase
         .from('users')
         .upsert({ 
@@ -43,9 +43,12 @@ export const api = {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase Upsert Error:", error);
+        throw error;
+      }
 
-      // Handle mining setup
+      // Handle mining setup if it's a new user
       const { data: status } = await supabase
         .from('mining_status')
         .select('*')
@@ -62,13 +65,13 @@ export const api = {
             tap_value: 1 
           }]),
           supabase.from('users').update({ referral_code: referralCode }).eq('telegram_id', telegramId),
-          this.sendBotNotification(telegramId, `Identity Verified! *${firstName}*, your profile is now live on the BalochCoin network.`)
+          this.sendBotNotification(telegramId, `Welcome *${firstName}*! 🪙 Your BP Treasury is now active.`)
         ]);
       }
 
       return user;
     } catch (e: any) {
-      console.error("API getOrCreateUser Error:", e.message);
+      console.error("API getOrCreateUser Fatal Error:", e.message);
       throw e;
     }
   },
@@ -92,21 +95,25 @@ export const api = {
   async updateBalanceAndEnergy(telegramId: number, bpEarned: number, energyUsed: number) {
     if (!supabase) return;
     try {
-      await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
-      await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
+      // These RPCs must exist in your Supabase 'SQL Editor'
+      const { error: bpErr } = await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
+      const { error: enErr } = await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
+      
+      if (bpErr || enErr) console.error("Balance Sync Error:", bpErr || enErr);
     } catch (e) {
-      console.error("Tap sync failed:", e);
+      console.error("Critical Tap Sync Exception:", e);
     }
   },
 
   async getTasks(telegramId: number) {
     if (!supabase) return [];
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('cultural_tasks')
         .select('*, task_completions!left(id)')
         .eq('task_completions.user_id', telegramId);
       
+      if (error) throw error;
       return (data || []).map((t: any) => ({ 
         ...t, 
         completed: Array.isArray(t.task_completions) && t.task_completions.length > 0 
@@ -119,12 +126,17 @@ export const api = {
   async completeTask(telegramId: number, taskId: number, bpReward: number, culturalBpReward: number) {
     if (!supabase) return { success: false };
     try {
-      // Save task state to database table
-      await supabase.from('task_completions').insert([{ user_id: telegramId, task_id: taskId }]);
-      await supabase.rpc('reward_user', { t_id: telegramId, bp: bpReward, cbp: culturalBpReward });
+      // 1. Mark as completed in the table
+      const { error: taskErr } = await supabase.from('task_completions').insert([{ user_id: telegramId, task_id: taskId }]);
+      if (taskErr) throw taskErr;
+
+      // 2. Reward the user (updates bp_balance in 'users' table)
+      const { error: rewardErr } = await supabase.rpc('reward_user', { t_id: telegramId, bp: bpReward, cbp: culturalBpReward });
+      if (rewardErr) throw rewardErr;
+
       return { success: true };
     } catch (e) {
-      console.error("Task completion save error:", e);
+      console.error("Task Completion Database Error:", e);
       return { success: false };
     }
   },

@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { User, MiningStatus } from '../types';
-import { Zap, Coins, Flame } from 'lucide-react';
+import { Zap, Coins, Flame, Landmark } from 'lucide-react';
 
 interface Props {
   user: User;
@@ -13,7 +13,6 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
   const [taps, setTaps] = useState<{ id: number, x: number, y: number }[]>([]);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Fallback values if status is incomplete
   const culturalMultiplier = status?.cultural_multiplier || 1.0;
   const tapValue = status?.tap_value || 1;
   const energy = status?.energy ?? 0;
@@ -35,7 +34,6 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
     setTaps(prev => [...prev, { id, x: clientX, y: clientY }]);
     onTap(1);
 
-    // Fixed: window.Telegram is now typed
     if (window.Telegram?.WebApp?.HapticFeedback) {
       try {
         window.Telegram.WebApp.HapticFeedback.impactOccurred('medium');
@@ -49,27 +47,31 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
 
   return (
     <div className="flex flex-col items-center px-6 pt-4 h-full relative" ref={containerRef}>
-      {/* Balance Glass Card */}
-      <div className="w-full glass rounded-[2.5rem] p-6 flex flex-col items-center mb-8 relative overflow-hidden shadow-2xl">
-        <div className="flex items-center gap-1.5 mb-2">
-           <div className="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
-           <span className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em]">BP Treasury</span>
+      {/* BP Estates / Treasury Card */}
+      <div className="w-full glass rounded-[2.5rem] p-6 flex flex-col items-center mb-8 relative overflow-hidden shadow-2xl border-orange-500/20">
+        <div className="absolute top-0 right-0 p-4 opacity-10">
+          <Landmark size={80} className="text-orange-500" />
         </div>
-        <div className="flex items-center gap-3">
+        
+        <div className="flex items-center gap-1.5 mb-2 relative z-10">
+           <div className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></div>
+           <span className="text-orange-400 text-[10px] font-black uppercase tracking-[0.2em]">BP Estates Treasury</span>
+        </div>
+        <div className="flex items-center gap-3 relative z-10">
           <div className="bg-orange-500/20 p-2 rounded-xl">
             <Coins className="text-orange-400" size={28} />
           </div>
-          <span className="text-5xl font-black font-orbitron tracking-tighter text-white tabular-nums">
+          <span className="text-5xl font-black font-orbitron tracking-tighter text-white tabular-nums drop-shadow-glow">
             {(user?.bp_balance ?? 0).toLocaleString()}
           </span>
         </div>
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-5 flex items-center gap-3 relative z-10">
            <div className="bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 flex items-center gap-2">
               <Flame size={14} className="text-orange-500" />
               <span className="text-orange-400 text-xs font-black">x{culturalMultiplier.toFixed(2)}</span>
            </div>
            <div className="bg-slate-800/80 px-4 py-2 rounded-2xl border border-white/5 flex items-center gap-2">
-              <span className="text-slate-400 text-[10px] font-bold uppercase">Profit/Tap</span>
+              <span className="text-slate-400 text-[10px] font-bold uppercase">Mining Power</span>
               <span className="text-white text-xs font-black">+{Math.floor(tapValue * culturalMultiplier)}</span>
            </div>
         </div>
@@ -78,7 +80,7 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
       {/* Main Tapper */}
       <div className="flex-1 flex items-center justify-center w-full min-h-[300px] mb-8">
         <div 
-          className="relative w-72 h-72 cursor-pointer active:scale-95 transition-all duration-75 select-none touch-none"
+          className="relative w-72 h-72 cursor-pointer active:scale-90 transition-all duration-75 select-none touch-none"
           onMouseDown={handleTouch}
           onTouchStart={handleTouch}
         >
@@ -86,7 +88,7 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
           <div className="absolute -inset-6 border-2 border-orange-500/5 rounded-full animate-[ping_3s_linear_infinite]"></div>
           
           <div className="absolute inset-0 rounded-full bg-gradient-to-b from-orange-300 via-orange-500 to-orange-800 p-1.5 coin-glow">
-            <div className="w-full h-full rounded-full bg-[#0a0f1e] flex items-center justify-center overflow-hidden relative border-t border-white/20">
+            <div className="w-full h-full rounded-full bg-[#0a0f1e] flex items-center justify-center overflow-hidden relative border-t border-white/20 shadow-inner">
               <div className="absolute inset-4 border border-white/5 rounded-full"></div>
               <div className="flex flex-col items-center z-10">
                 <span className="text-8xl font-black text-orange-500 font-orbitron drop-shadow-[0_0_15px_rgba(249,115,22,0.6)]">B</span>
@@ -117,7 +119,6 @@ const MiningView: React.FC<Props> = ({ user, status, onTap }) => {
         </div>
       </div>
 
-      {/* Floating Indicators */}
       {taps.map(tap => (
         <div 
           key={tap.id}
