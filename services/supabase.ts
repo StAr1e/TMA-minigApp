@@ -27,25 +27,25 @@ export const api = {
     if (!supabase) throw new Error("Database not configured.");
     
     try {
-      // Identity data from Telegram
       const telegramUsername = profile.username || profile.first_name || `user_${telegramId}`;
       const firstName = profile.first_name || 'Warrior';
+      const photoUrl = profile.photo_url || '';
 
-      // Use upsert to ensure we either create the user or update their current profile info
+      // Force upsert to save all information into the database immediately
       const { data: user, error } = await supabase
         .from('users')
         .upsert({ 
           telegram_id: telegramId, 
           username: telegramUsername, 
           first_name: firstName,
-          // These fields only set on first insert if using a trigger or handled via logic
+          photo_url: photoUrl
         }, { onConflict: 'telegram_id' })
         .select()
         .single();
 
       if (error) throw error;
 
-      // Handle first-time setup for mining status if not present
+      // Handle mining setup
       const { data: status } = await supabase
         .from('mining_status')
         .select('*')
@@ -62,7 +62,7 @@ export const api = {
             tap_value: 1 
           }]),
           supabase.from('users').update({ referral_code: referralCode }).eq('telegram_id', telegramId),
-          this.sendBotNotification(telegramId, `Welcome *${firstName}*! 🪙 Your data is now synced with the BalochCoin treasury.`)
+          this.sendBotNotification(telegramId, `Identity Verified! *${firstName}*, your profile is now live on the BalochCoin network.`)
         ]);
       }
 
@@ -92,11 +92,10 @@ export const api = {
   async updateBalanceAndEnergy(telegramId: number, bpEarned: number, energyUsed: number) {
     if (!supabase) return;
     try {
-      // Syncing balances and energy to remote DB
       await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
       await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
     } catch (e) {
-      console.error("Database sync failed for tap:", e);
+      console.error("Tap sync failed:", e);
     }
   },
 
@@ -105,9 +104,13 @@ export const api = {
     try {
       const { data } = await supabase
         .from('cultural_tasks')
-        .select('*, task_completions(id)')
+        .select('*, task_completions!left(id)')
         .eq('task_completions.user_id', telegramId);
-      return (data || []).map((t: any) => ({ ...t, completed: t.task_completions?.length > 0 }));
+      
+      return (data || []).map((t: any) => ({ 
+        ...t, 
+        completed: Array.isArray(t.task_completions) && t.task_completions.length > 0 
+      }));
     } catch (e) {
       return [];
     }
@@ -116,16 +119,16 @@ export const api = {
   async completeTask(telegramId: number, taskId: number, bpReward: number, culturalBpReward: number) {
     if (!supabase) return { success: false };
     try {
+      // Save task state to database table
       await supabase.from('task_completions').insert([{ user_id: telegramId, task_id: taskId }]);
-      // Update global user balance for task reward
       await supabase.rpc('reward_user', { t_id: telegramId, bp: bpReward, cbp: culturalBpReward });
       return { success: true };
     } catch (e) {
+      console.error("Task completion save error:", e);
       return { success: false };
     }
   },
 
-  // Added getReferralCount to fix the missing property error in ReferralView.tsx
   async getReferralCount(telegramId: number): Promise<number> {
     if (!supabase) return 0;
     try {
@@ -137,7 +140,6 @@ export const api = {
       if (error) throw error;
       return count || 0;
     } catch (e) {
-      console.error("API getReferralCount Error:", e);
       return 0;
     }
   }

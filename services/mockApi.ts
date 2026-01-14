@@ -16,14 +16,14 @@ export const mockApi = {
     const profile = {
       telegram_id: realId,
       username: tgUser?.username || tgUser?.first_name || `user_${realId}`,
-      first_name: tgUser?.first_name || 'Warrior'
+      first_name: tgUser?.first_name || 'Warrior',
+      photo_url: tgUser?.photo_url || ''
     };
 
     try {
-      // Absolute sync with Supabase: Every login updates the server with current Telegram data
+      // Strict database sync: Add/Update the user in the 'users' table
       const user = await api.getOrCreateUser(profile.telegram_id, profile);
       
-      // Persist to local cache for offline/instant reload
       const store = db.getStore(profile.telegram_id);
       db.saveStore({ ...store, user }, profile.telegram_id);
       
@@ -33,7 +33,6 @@ export const mockApi = {
       const localStore = db.getStore(profile.telegram_id);
       if (localStore.user.telegram_id === realId) return localStore.user;
       
-      // Ultimate fallback if nothing else exists
       return {
         telegram_id: realId,
         username: profile.username,
@@ -64,11 +63,10 @@ export const mockApi = {
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
     
-    // Save to local DB first (instant)
     db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
     db.updateStatus(userId, { energy: Math.max(0, store.status.energy - taps) });
 
-    // Background sync to remote DB
+    // Sync to database
     api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(() => {});
     return { success: true };
   },
@@ -92,8 +90,9 @@ export const mockApi = {
       const task = store.tasks.find((t: any) => t.id === taskId);
       if (!task || task.completed) return { success: false };
       
-      await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
-      return { success: true };
+      // Save information into database
+      const res = await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
+      return res;
     } catch (e) {
       return { success: false };
     }
@@ -104,10 +103,15 @@ export const mockApi = {
     try {
       const { data } = await supabase
         .from('users')
-        .select('username, bp_balance, level')
+        .select('username, bp_balance, level, photo_url')
         .order('bp_balance', { ascending: false })
         .limit(10);
-      return (data || []).map(d => ({ username: d.username, bp: d.bp_balance, level: d.level }));
+      return (data || []).map(d => ({ 
+        username: d.username, 
+        bp: d.bp_balance, 
+        level: d.level,
+        photo_url: d.photo_url 
+      }));
     } catch (e) {
       return [];
     }

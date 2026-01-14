@@ -2,7 +2,6 @@
 import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { mockApi } from '../services/mockApi';
-/* Added ChevronRight to imports */
 import { Trophy, Medal, Star, Crown, ChevronRight } from 'lucide-react';
 
 interface Props {
@@ -10,7 +9,7 @@ interface Props {
 }
 
 const LeaderboardView: React.FC<Props> = ({ user }) => {
-  const [board, setBoard] = useState<{ username: string, bp: number, level: number }[]>([]);
+  const [board, setBoard] = useState<{ username: string, bp: number, level: number, photo_url?: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -53,8 +52,12 @@ const LeaderboardView: React.FC<Props> = ({ user }) => {
                    <span className="text-sm font-black text-slate-600 font-orbitron">#{idx + 1}</span>}
                 </div>
                 <div className="relative">
-                   <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center font-black text-sm text-slate-300">
-                      {player.username.charAt(0).toUpperCase()}
+                   <div className="w-12 h-12 rounded-2xl bg-slate-800 border border-white/10 flex items-center justify-center font-black text-sm text-slate-300 overflow-hidden">
+                      {player.photo_url ? (
+                        <img src={player.photo_url} alt={player.username} className="w-full h-full object-cover" />
+                      ) : (
+                        player.username.charAt(0).toUpperCase()
+                      )}
                    </div>
                    {idx < 3 && (
                      <div className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full border-2 border-[#0f172a] flex items-center justify-center">
@@ -63,14 +66,12 @@ const LeaderboardView: React.FC<Props> = ({ user }) => {
                    )}
                 </div>
                 <div>
-                  <h4 className="font-extrabold text-[14px] flex items-center gap-2">
+                  <h4 className="font-extrabold text-[14px] flex items-center gap-2 text-white">
                     {player.username}
                     {player.username === user.username && <span className="text-[10px] bg-orange-500 px-1.5 py-0.5 rounded text-white font-black uppercase tracking-tighter">You</span>}
                   </h4>
                   <div className="flex items-center gap-2">
                     <span className="text-[9px] text-slate-500 font-black uppercase tracking-[0.1em]">Lvl {player.level}</span>
-                    <div className="w-1 h-1 bg-slate-800 rounded-full"></div>
-                    <span className="text-[9px] text-orange-500/80 font-black uppercase tracking-[0.1em]">Warrior</span>
                   </div>
                 </div>
               </div>
@@ -87,13 +88,13 @@ const LeaderboardView: React.FC<Props> = ({ user }) => {
       <div className="mt-8 glass p-6 rounded-[2.5rem] border border-white/10 flex items-center justify-between shadow-2xl mb-12">
          <div className="flex items-center gap-5">
             <div className="flex flex-col items-center">
-               <span className="text-xl font-black text-white font-orbitron">481</span>
+               <span className="text-xl font-black text-white font-orbitron">#1</span>
                <span className="text-[9px] font-black uppercase text-slate-500">Rank</span>
             </div>
             <div className="w-[1px] h-10 bg-white/10"></div>
             <div>
-               <p className="text-[11px] font-black uppercase tracking-widest text-slate-300">Elite 5% Club</p>
-               <p className="text-[10px] font-bold text-slate-500">Keep tapping to climb</p>
+               <p className="text-[11px] font-black uppercase tracking-widest text-slate-300">Tribal Master</p>
+               <p className="text-[10px] font-bold text-slate-500">Synced to Treasury</p>
             </div>
          </div>
          <button className="bg-orange-500 p-3 rounded-2xl shadow-lg shadow-orange-500/20">

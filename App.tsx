@@ -11,7 +11,7 @@ import ReferralView from './components/ReferralView';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState('home');
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<(User & { photo_url?: string }) | null>(null);
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +29,7 @@ const App: React.FC = () => {
       const tgUser = tg?.initDataUnsafe?.user;
       
       // 1. INSTANT IDENTITY PROJECTION
-      // We show the real name immediately from Telegram metadata
+      // Display real profile data (including photo) immediately from Telegram metadata
       if (tgUser) {
         setUser({
           telegram_id: tgUser.id,
@@ -37,7 +37,8 @@ const App: React.FC = () => {
           bp_balance: 0,
           cultural_bp: 0,
           level: 1,
-          referral_code: ''
+          referral_code: '',
+          photo_url: tgUser.photo_url
         });
       }
 
@@ -45,14 +46,13 @@ const App: React.FC = () => {
         setLoading(true);
         
         // 2. PARALLEL BACKGROUND SYNC
-        // Fetch server-side balances, tasks, and mining energy
+        // This ensures the user is saved in the database table immediately
         const [userData, statusData] = await Promise.all([
           mockApi.getUserProfile(),
           mockApi.getMiningStatus(tgUser?.id || 123456)
         ]);
         
-        // Merge server data with local UI state
-        setUser(userData);
+        setUser({ ...userData, photo_url: tgUser?.photo_url });
         setStatus(statusData);
         
         if (tg?.HapticFeedback) {
@@ -63,7 +63,6 @@ const App: React.FC = () => {
         if (err.message === "TELEGRAM_USER_REQUIRED") {
           setError("PLEASE_OPEN_IN_TELEGRAM");
         } else {
-          // Keep showing initial user data if network fails
           if (!tgUser) setError("CONNECTION_ERROR");
         }
       } finally {
@@ -117,12 +116,11 @@ const App: React.FC = () => {
     );
   }
 
-  // Loader only shows if we have no user data (likely non-Telegram or fresh dev install)
   if (loading && !user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
         <div className="w-16 h-16 border-4 border-orange-500/10 border-t-orange-500 rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] animate-pulse">Establishing Connection</p>
+        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] animate-pulse">Syncing Tribal Data</p>
       </div>
     );
   }
@@ -144,8 +142,14 @@ const App: React.FC = () => {
       <div className="px-5 pt-6 pb-2 flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg overflow-hidden relative">
-             <div className="absolute inset-0 bg-orange-500/5 animate-pulse"></div>
-             <span className="font-black text-orange-500 text-lg z-10">{user?.username?.charAt(0).toUpperCase()}</span>
+             {user?.photo_url ? (
+               <img src={user.photo_url} alt="Profile" className="w-full h-full object-cover" />
+             ) : (
+               <>
+                 <div className="absolute inset-0 bg-orange-500/5 animate-pulse"></div>
+                 <span className="font-black text-orange-500 text-lg z-10">{user?.username?.charAt(0).toUpperCase()}</span>
+               </>
+             )}
           </div>
           <div className="flex flex-col">
             <span className="font-extrabold text-sm truncate max-w-[140px] text-white">
@@ -153,13 +157,13 @@ const App: React.FC = () => {
             </span>
             <div className="flex items-center gap-1">
               <div className="w-1 h-1 bg-orange-500 rounded-full"></div>
-              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Warrior Rank</span>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Verified Warrior</span>
             </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="glass px-3 py-1.5 rounded-xl border border-white/5 bg-slate-900/40">
-            <span className="text-[11px] font-black text-white uppercase tracking-tighter">Level {user?.level}</span>
+            <span className="text-[11px] font-black text-white uppercase tracking-tighter">LVL {user?.level}</span>
           </div>
         </div>
       </div>
