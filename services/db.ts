@@ -43,7 +43,7 @@ const INITIAL_TASKS: CulturalTask[] = [
 ];
 
 export const db = {
-  getStore() {
+  getStore(id: number) {
     const data = localStorage.getItem(STORAGE_KEY);
     if (!data) {
       const initial = {
@@ -71,18 +71,18 @@ export const db = {
     return JSON.parse(data);
   },
 
-  saveStore(data: any) {
+  saveStore(data: any, id: number) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   },
 
-  updateUser(updates: Partial<User>) {
+  updateUser(userId: number, updates: Partial<User>) {
     const store = this.getStore();
     store.user = { ...store.user, ...updates };
     this.saveStore(store);
     return store.user;
   },
 
-  updateStatus(updates: Partial<MiningStatus>) {
+  updateStatus(userId: number, updates: Partial<MiningStatus>) {
     const store = this.getStore();
     store.status = { ...store.status, ...updates };
     this.saveStore(store);

@@ -29,7 +29,6 @@ export interface CulturalTask {
   content?: any;
 }
 
-// Fixed: Added global Telegram WebApp types
 declare global {
   interface Window {
     Telegram?: {
@@ -39,7 +38,9 @@ declare global {
         setHeaderColor: (color: string) => void;
         setBackgroundColor: (color: string) => void;
         openTelegramLink: (url: string) => void;
-        initDataUnsafe?: {
+        // Added required properties for initialization
+        initData: string;
+        initDataUnsafe: {
           user?: {
             id: number;
             username?: string;
