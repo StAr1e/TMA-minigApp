@@ -21,7 +21,8 @@ const TasksView: React.FC = () => {
 
   const handleComplete = async (id: number) => {
     setCompletingId(id);
-    const res = await mockApi.completeTask(id);
+    // Fix: Convert number id to string to match mockApi.completeTask signature
+    const res = await mockApi.completeTask(String(id));
     if (res.success) {
       await fetchTasks();
     }

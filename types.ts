@@ -1,4 +1,3 @@
-
 export interface User {
   telegram_id: number;
   username: string;
@@ -6,6 +5,7 @@ export interface User {
   cultural_bp: number;
   level: number;
   referral_code: string;
+  photo_url?: string;
 }
 
 export interface MiningStatus {

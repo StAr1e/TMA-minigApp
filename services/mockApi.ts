@@ -6,11 +6,14 @@ import { db } from './db';
 const IS_DEV = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 export const mockApi = {
+  /* -------------------- GET USER PROFILE -------------------- */
   async getUserProfile(): Promise<User> {
     const tg = window.Telegram?.WebApp;
     const tgUser = tg?.initDataUnsafe?.user;
-    
-    if (!tgUser && !IS_DEV) throw new Error("TELEGRAM_USER_REQUIRED");
+
+    if (!tgUser && !IS_DEV) {
+      throw new Error("TELEGRAM_USER_REQUIRED");
+    }
 
     const realId = tgUser?.id || 123456;
     const profile = {
@@ -21,64 +24,81 @@ export const mockApi = {
     };
 
     try {
-      // Upsert into real DB
+      // Upsert user into Supabase 'users' table
       const dbUser = await api.getOrCreateUser(profile.telegram_id, profile);
-      
-      // Map DB columns to Frontend types
+
+      // Map database fields to frontend User type (mapping points -> bp_balance)
       const user: User = {
         telegram_id: dbUser.telegram_id,
         username: dbUser.username,
-        bp_balance: dbUser.points || 0, // Map 'points' to 'bp_balance'
-        cultural_bp: dbUser.cultural_points || 0, // Map 'cultural_points' to 'cultural_bp'
-        level: dbUser.level || 1,
-        referral_code: dbUser.referral_code || ''
+        bp_balance: dbUser.points || 0,
+        cultural_bp: dbUser.cultural_points || 0,
+        level: 1, // You could derive this from points later
+        referral_code: dbUser.id, // Using internal UUID as a simple ref code
+        // Fix: Removed photo_url property as it does not exist on User type
       };
-      
+
+      // Save in local store
+      db.saveStore({ user }, realId);
+
       return user;
     } catch (e) {
+      console.error("Failed to fetch user from DB, falling back to local store", e);
       const localStore = db.getStore(realId);
       return localStore.user;
     }
   },
 
+  /* -------------------- GET MINING STATUS -------------------- */
   async getMiningStatus(userId: number): Promise<MiningStatus> {
     try {
       const status = await api.getMiningStatus(userId);
       return {
-        ...status,
+        energy: status.energy,
+        max_energy: status.max_energy,
+        tap_value: status.tap_value || 1,
         energy_regen_rate: 1,
         cultural_multiplier: status.cultural_multiplier || 1.0
       };
     } catch (e) {
-      return db.getStore(userId).status;
+      const store = db.getStore(userId);
+      return store.status;
     }
   },
 
-  async tap(taps: number): Promise<any> {
+  /* -------------------- TAP ACTION -------------------- */
+  async tap(taps: number): Promise<{ success: boolean; data?: { bp_earned: number } }> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
     const store = db.getStore(userId);
-    const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
+    const multiplier = store?.status?.cultural_multiplier || 1;
+
+    const bpEarned = Math.floor(taps * multiplier);
+
+    // Update local store for instant UI feedback
+    db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
     
-    // Sync to database
-    api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(() => {});
-    return { success: true };
+    // Sync with database (points column)
+    api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(e => console.error(e));
+
+    return { success: true, data: { bp_earned: bpEarned } };
   },
 
+  /* -------------------- GET TASKS -------------------- */
   async getTasks(): Promise<CulturalTask[]> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
+
     try {
       const dbTasks = await api.getTasks(userId);
-      // Map database task fields to frontend CulturalTask type
       return dbTasks.map((t: any) => ({
         id: t.id,
         title: t.title,
         description: t.description,
         bp_reward: t.reward,
-        cultural_bp_reward: t.cultural_flag ? 100 : 0, // Mock logic for cultural rewards
-        completed: t.completed,
-        type: t.type,
+        cultural_bp_reward: t.cultural_flag ? 100 : 0,
+        completed: t.completed || false,
+        type: t.type || 'general',
         difficulty: 'medium',
         category: 'general'
       }));
@@ -87,21 +107,25 @@ export const mockApi = {
     }
   },
 
-  async completeTask(taskId: any): Promise<any> {
+  /* -------------------- COMPLETE TASK -------------------- */
+  async completeTask(taskId: string): Promise<{ success: boolean }> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
+
     try {
-      // Find task to get reward values
       const tasks = await this.getTasks();
-      const task = tasks.find(t => t.id === taskId);
+      const task = tasks.find(t => String(t.id) === String(taskId));
       if (!task) return { success: false };
 
-      return await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
+      const res = await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
+      return res;
     } catch (e) {
+      console.error("Complete task error:", e);
       return { success: false };
     }
   },
 
+  /* -------------------- LEADERBOARD -------------------- */
   async getLeaderboard() {
     if (!supabase) return [];
     try {
@@ -110,11 +134,12 @@ export const mockApi = {
         .select('username, points, avatar_url')
         .order('points', { ascending: false })
         .limit(10);
-      return (data || []).map(d => ({ 
-        username: d.username, 
-        bp: d.points || 0, 
+
+      return (data || []).map(d => ({
+        username: d.username,
+        bp: d.points || 0,
         level: 1,
-        photo_url: d.avatar_url 
+        photo_url: d.avatar_url
       }));
     } catch (e) {
       return [];

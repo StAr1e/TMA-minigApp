@@ -5,77 +5,77 @@ const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 
-export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY) 
-  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-  : null;
+export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+/* -------------------- Telegram Bot Helper -------------------- */
+async function sendBotNotification(chat_id: number, text: string) {
+  if (!BOT_TOKEN) return;
+  try {
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id, text, parse_mode: 'Markdown' })
+    });
+  } catch (e) {
+    console.error('Telegram error:', e);
+  }
+}
 
 export const api = {
-  async sendBotNotification(chat_id: number, text: string) {
-    if (!BOT_TOKEN) return;
-    try {
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chat_id, text, parse_mode: 'Markdown' })
-      });
-    } catch (e) {
-      console.error("Telegram API call failed:", e);
-    }
-  },
-
+  /* -------------------- USERS -------------------- */
   async getOrCreateUser(telegramId: number, profile: any) {
-    if (!supabase) throw new Error("Database not configured.");
-    
-    try {
-      const telegramUsername = profile.username || profile.first_name || `user_${telegramId}`;
-      const avatarUrl = profile.photo_url || '';
+    const username = profile?.username || profile?.first_name || `user_${telegramId}`;
+    const avatar_url = profile?.photo_url || null;
 
-      // Force upsert into the 'users' table using your schema columns: points, cultural_points
-      const { data: user, error } = await supabase
-        .from('users')
-        .upsert({ 
-          telegram_id: telegramId, 
-          username: telegramUsername,
-          avatar_url: avatarUrl
-        }, { onConflict: 'telegram_id' })
-        .select()
-        .single();
+    /* UPSERT USER into 'users' table using your specific schema */
+    const { data, error } = await supabase
+      .from('users')
+      .upsert(
+        {
+          telegram_id: telegramId,
+          username,
+          avatar_url,
+          updated_at: new Date().toISOString()
+        },
+        { onConflict: 'telegram_id' }
+      )
+      .select('*')
+      .single();
 
-      if (error) {
-        console.error("Supabase Upsert Error:", error);
-        throw error;
-      }
-
-      // Check if user has a mining status record (optional based on your custom logic)
-      const { data: status } = await supabase
-        .from('mining_status')
-        .select('*')
-        .eq('telegram_id', telegramId)
-        .maybeSingle();
-
-      if (!status) {
-        // Since the users table has points/cultural_points, we ensure they are initialized
-        await Promise.all([
-          // If you use a separate table for energy, keep this, otherwise use users table
-          supabase.from('mining_status').upsert([{ 
-            telegram_id: telegramId, 
-            energy: 1000, 
-            max_energy: 1000, 
-            tap_value: 1 
-          }], { onConflict: 'telegram_id' }),
-          this.sendBotNotification(telegramId, `Welcome *${telegramUsername}*! 🪙 Your Treasury is now synced.`)
-        ]);
-      }
-
-      return user;
-    } catch (e: any) {
-      console.error("API getOrCreateUser Fatal Error:", e.message);
-      throw e;
+    if (error) {
+      console.error('USER UPSERT FAILED:', error);
+      throw error;
     }
+
+    // Initialize mining status if needed (separate table for energy management)
+    const { data: status } = await supabase
+      .from('mining_status')
+      .select('*')
+      .eq('telegram_id', telegramId)
+      .maybeSingle();
+
+    if (!status) {
+      await supabase.from('mining_status').insert([{ 
+        telegram_id: telegramId, 
+        energy: 1000, 
+        max_energy: 1000, 
+        tap_value: 1,
+        cultural_multiplier: 1.0
+      }]);
+    }
+
+    /* Welcome message only on first creation */
+    if (data.created_at === data.updated_at) {
+      await sendBotNotification(
+        telegramId,
+        `Welcome *${username}*! 🪙 Your BP Treasury is now active and synced to the Baloch network.`
+      );
+    }
+
+    return data;
   },
 
   async getMiningStatus(telegramId: number) {
-    if (!supabase) return { energy: 1000, max_energy: 1000, tap_value: 1, cultural_multiplier: 1.0 };
     try {
       const { data, error } = await supabase
         .from('mining_status')
@@ -90,98 +90,119 @@ export const api = {
     }
   },
 
-  async updateBalanceAndEnergy(telegramId: number, bpEarned: number, energyUsed: number) {
-    if (!supabase) return;
-    try {
-      // Use your SQL schema: update 'points' in 'users' table
-      // We use a simple increment since the RPC might not be named 'increment_bp' in your provided schema
-      const { data: currentUser } = await supabase
-        .from('users')
-        .select('points')
-        .eq('telegram_id', telegramId)
-        .single();
-
-      if (currentUser) {
-        await supabase
-          .from('users')
-          .update({ points: (currentUser.points || 0) + bpEarned })
-          .eq('telegram_id', telegramId);
-      }
-
-      // Update energy in mining_status
-      await supabase
-        .from('mining_status')
-        .update({ energy: Math.max(0, 1000 - energyUsed) }) // Simplified logic for example
-        .eq('telegram_id', telegramId);
-
-    } catch (e) {
-      console.error("Critical Sync Exception:", e);
-    }
-  },
-
+  /* -------------------- TASKS -------------------- */
   async getTasks(telegramId: number) {
-    if (!supabase) return [];
-    try {
-      // Get internal user id first
-      const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-      if (!user) return [];
+    const { data: user } = await supabase
+      .from('users')
+      .select('id')
+      .eq('telegram_id', telegramId)
+      .single();
 
-      // Fetch tasks and join with user_tasks based on your schema
-      const { data: tasks, error } = await supabase
-        .from('tasks')
-        .select('*, user_tasks(id)')
-        .eq('user_tasks.user_id', user.id);
-      
-      if (error) throw error;
-      return (tasks || []).map((t: any) => ({ 
-        ...t, 
-        completed: Array.isArray(t.user_tasks) && t.user_tasks.length > 0 
-      }));
-    } catch (e) {
+    if (!user) return [];
+
+    // Correctly join with user_tasks for completion state
+    const { data, error } = await supabase
+      .from('tasks')
+      .select('*, user_tasks(id)')
+      .eq('user_tasks.user_id', user.id);
+
+    if (error) {
+      console.error('TASK FETCH ERROR:', error);
       return [];
     }
+
+    return (data || []).map(task => ({
+      ...task,
+      completed: task.user_tasks && task.user_tasks.length > 0
+    }));
   },
 
-  async completeTask(telegramId: number, taskId: string, reward: number, culturalReward: number) {
-    if (!supabase) return { success: false };
-    try {
-      const { data: user } = await supabase.from('users').select('id, points, cultural_points').eq('telegram_id', telegramId).single();
-      if (!user) throw new Error("User not found");
+  /* -------------------- COMPLETE TASK -------------------- */
+  async completeTask(
+    telegramId: number,
+    taskId: string,
+    reward: number,
+    culturalReward: number
+  ) {
+    const { data: user, error } = await supabase
+      .from('users')
+      .select('id, points, cultural_points')
+      .eq('telegram_id', telegramId)
+      .single();
 
-      // 1. Mark as completed in 'user_tasks' table
-      await supabase.from('user_tasks').insert([{ user_id: user.id, task_id: taskId }]);
-
-      // 2. Update points and cultural_points in 'users' table
-      await supabase
-        .from('users')
-        .update({ 
-          points: (user.points || 0) + reward,
-          cultural_points: (user.cultural_points || 0) + culturalReward
-        })
-        .eq('id', user.id);
-
-      return { success: true };
-    } catch (e) {
-      console.error("Task Database Error:", e);
+    if (error || !user) {
+      console.error('USER NOT FOUND');
       return { success: false };
     }
+
+    /* Insert completion into user_tasks */
+    const { error: taskError } = await supabase
+      .from('user_tasks')
+      .insert({
+        user_id: user.id,
+        task_id: taskId
+      });
+
+    if (taskError) {
+      console.error('TASK INSERT ERROR:', taskError);
+      return { success: false };
+    }
+
+    /* Update balances in users table using correct columns */
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({
+        points: (user.points || 0) + reward,
+        cultural_points: (user.cultural_points || 0) + culturalReward,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', user.id);
+
+    return { success: !updateError };
   },
 
-  async getReferralCount(telegramId: number): Promise<number> {
-    if (!supabase) return 0;
-    try {
-      const { data: user } = await supabase.from('users').select('id').eq('telegram_id', telegramId).single();
-      if (!user) return 0;
+  /* -------------------- POINTS & ENERGY SYNC -------------------- */
+  async updateBalanceAndEnergy(telegramId: number, pointsToAdd: number, energyUsed: number) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('points')
+      .eq('telegram_id', telegramId)
+      .single();
 
-      const { count, error } = await supabase
-        .from('referrals')
-        .select('*', { count: 'exact', head: true })
-        .eq('referrer_id', user.id);
-      
-      if (error) throw error;
-      return count || 0;
-    } catch (e) {
-      return 0;
-    }
+    if (!user) return;
+
+    await Promise.all([
+      supabase
+        .from('users')
+        .update({
+          points: (user.points || 0) + pointsToAdd,
+          updated_at: new Date().toISOString()
+        })
+        .eq('telegram_id', telegramId),
+      supabase
+        .from('mining_status')
+        .update({
+          energy: Math.max(0, 1000 - energyUsed) // Example energy update
+        })
+        .eq('telegram_id', telegramId)
+    ]);
+  },
+
+  /* -------------------- REFERRALS -------------------- */
+  async getReferralCount(telegramId: number) {
+    const { data: user } = await supabase
+      .from('users')
+      .select('id')
+      .eq('telegram_id', telegramId)
+      .single();
+
+    if (!user) return 0;
+
+    const { count } = await supabase
+      .from('referrals')
+      .select('*', { count: 'exact', head: true })
+      .eq('referrer_id', user.id);
+
+    return count || 0;
   }
 };
