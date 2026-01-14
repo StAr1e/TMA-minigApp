@@ -29,6 +29,7 @@ const ReferralView: React.FC<Props> = ({ user }) => {
   const handleShare = () => {
     const text = `Join BalochCoin and start earning BP tokens together! 🪙 Balochistan's first tap-to-earn game.`;
     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(refLink)}&text=${encodeURIComponent(text)}`;
+    // Fixed: window.Telegram is now typed
     (window.Telegram?.WebApp as any)?.openTelegramLink(shareUrl);
   };
 
@@ -36,6 +37,7 @@ const ReferralView: React.FC<Props> = ({ user }) => {
     navigator.clipboard.writeText(refLink);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+    // Fixed: window.Telegram is now typed
     window.Telegram?.WebApp?.HapticFeedback?.impactOccurred('light');
   };
 

@@ -5,6 +5,7 @@ import { db } from './db';
 
 export const mockApi = {
   async getUserProfile(): Promise<User> {
+    // Fixed: window.Telegram is now typed via types.ts
     const tg = window.Telegram?.WebApp;
     const tgUser = tg?.initDataUnsafe?.user;
     
@@ -14,7 +15,7 @@ export const mockApi = {
       first_name: tgUser.first_name || 'Warrior',
       last_name: tgUser.last_name || '',
       photo_url: (tgUser as any)?.photo_url || ''
-    } : { id: 12345, username: 'Local_Warrior', first_name: 'Local', last_name: '', photo_url: '' };
+    } : { id: 123456, username: 'Local_Warrior', first_name: 'Local', last_name: '', photo_url: '' };
 
     try {
       const user = await api.getOrCreateUser(profile.id, profile);
@@ -24,9 +25,8 @@ export const mockApi = {
       }
       return user;
     } catch (e) {
-      console.log("Using local fallback profile");
-      const store = db.getStore();
-      return store.user;
+      console.warn("DB offline or profile load failed, using local fallback.", e);
+      return db.getStore().user;
     }
   },
 
@@ -44,12 +44,14 @@ export const mockApi = {
         cultural_multiplier: 1 + (culturalBp / 10000)
       };
     } catch (e) {
+      console.warn("Mining status load failed, using local fallback.");
       return db.getStore().status;
     }
   },
 
   async tap(taps: number): Promise<any> {
-    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 12345;
+    // Fixed: window.Telegram is now typed
+    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       let multiplier = 1;
       if (supabase) {
@@ -69,7 +71,8 @@ export const mockApi = {
   },
 
   async getTasks(): Promise<CulturalTask[]> {
-    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 12345;
+    // Fixed: window.Telegram is now typed
+    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       return await api.getTasks(userId);
     } catch (e) {
@@ -78,7 +81,8 @@ export const mockApi = {
   },
 
   async completeTask(taskId: number): Promise<any> {
-    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 12345;
+    // Fixed: window.Telegram is now typed
+    const userId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 123456;
     try {
       const allTasks = await this.getTasks();
       const task = allTasks.find(t => t.id === taskId);
@@ -94,8 +98,12 @@ export const mockApi = {
   },
 
   async getLeaderboard() {
-    if (!supabase) return [{ username: 'Sample Warrior', bp: 50000, level: 10 }];
-    const { data } = await supabase.from('users').select('username, bp_balance, level').order('bp_balance', { ascending: false }).limit(10);
-    return (data || []).map(d => ({ username: d.username, bp: d.bp_balance, level: d.level }));
+    try {
+      if (!supabase) throw new Error("DB_OFFLINE");
+      const { data } = await supabase.from('users').select('username, bp_balance, level').order('bp_balance', { ascending: false }).limit(10);
+      return (data || []).map(d => ({ username: d.username, bp: d.bp_balance, level: d.level }));
+    } catch (e) {
+      return [{ username: 'Sample Warrior', bp: 50000, level: 10 }];
+    }
   }
 };

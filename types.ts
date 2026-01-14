@@ -28,3 +28,31 @@ export interface CulturalTask {
   category: string;
   content?: any;
 }
+
+// Fixed: Added global Telegram WebApp types
+declare global {
+  interface Window {
+    Telegram?: {
+      WebApp: {
+        ready: () => void;
+        expand: () => void;
+        setHeaderColor: (color: string) => void;
+        setBackgroundColor: (color: string) => void;
+        openTelegramLink: (url: string) => void;
+        initDataUnsafe?: {
+          user?: {
+            id: number;
+            username?: string;
+            first_name?: string;
+            last_name?: string;
+            photo_url?: string;
+          };
+          start_param?: string;
+        };
+        HapticFeedback?: {
+          impactOccurred: (style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft') => void;
+        };
+      };
+    };
+  }
+}

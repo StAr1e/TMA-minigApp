@@ -16,6 +16,7 @@ const WalletView: React.FC<Props> = ({ user }) => {
     setTimeout(() => {
       setConnected(true);
       setConnecting(false);
+      // Fixed: window.Telegram is now typed
       if (window.Telegram?.WebApp?.HapticFeedback) {
         window.Telegram.WebApp.HapticFeedback.impactOccurred('heavy');
       }
