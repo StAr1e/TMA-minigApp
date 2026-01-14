@@ -1,16 +1,27 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = 'https://wwojzxrnubmufsduxtfo.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind3b2p6eHJudWJtdWZzZHV4dGZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjgzNjQzMzIsImV4cCI6MjA4Mzk0MDMzMn0.Mah3zuTgJy8yBlO0yFwSzlUTVuJui7Zn7SurSm4LSuI';
+// Access standard environment variables directly
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+const BOT_TOKEN = process.env.BOT_TOKEN || '';
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Initialize Supabase only if credentials exist
+export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY) 
+  ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+  : null;
 
-const BOT_TOKEN = '8372930912:AAGthTYgZGfpzniUG9wiUmnCYxiTysLCA4k';
+// Developer feedback for local environment
+if (!supabase && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+  console.warn("Database keys (SUPABASE_URL/SUPABASE_ANON_KEY) missing from .env. Some features will be disabled.");
+}
 
 export const api = {
   async sendBotNotification(chat_id: number, text: string) {
-    if (!BOT_TOKEN) return;
+    if (!BOT_TOKEN) {
+      console.warn("Notification skipped: BOT_TOKEN missing from environment.");
+      return;
+    }
     try {
       await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: 'POST',
@@ -18,13 +29,14 @@ export const api = {
         body: JSON.stringify({ chat_id, text, parse_mode: 'Markdown' })
       });
     } catch (e) {
-      console.error("Bot notification failed", e);
+      console.error("Telegram API call failed:", e);
     }
   },
 
   async getOrCreateUser(telegramId: number, profile: any) {
+    if (!supabase) throw new Error("Database not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment.");
+    
     try {
-      // First, try to find the user
       let { data: user, error } = await supabase
         .from('users')
         .select('*')
@@ -37,7 +49,7 @@ export const api = {
           .from('users')
           .insert([{ 
             telegram_id: telegramId, 
-            username: profile.username || `user_${telegramId}`, 
+            username: profile.username || `warrior_${telegramId}`, 
             first_name: profile.first_name || 'Warrior',
             bp_balance: 0, 
             cultural_bp: 0, 
@@ -49,7 +61,7 @@ export const api = {
         
         if (createError) throw createError;
         
-        // Setup initial energy status
+        // Initialize mining status
         try { 
           await supabase.from('mining_status').insert([{ 
             telegram_id: telegramId, 
@@ -59,31 +71,19 @@ export const api = {
           }]); 
         } catch (e) {}
 
-        // Notify user via Bot
-        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your journey in BalochCoin begins.`);
-        
+        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your tribal journey begins.`);
         return newUser;
       }
       
-      // Update username if it changed in TG
-      if (user.username !== profile.username && profile.username) {
-         const { data: updatedUser } = await supabase
-            .from('users')
-            .update({ username: profile.username })
-            .eq('telegram_id', telegramId)
-            .select()
-            .single();
-         if (updatedUser) return updatedUser;
-      }
-
       return user;
     } catch (e: any) {
-      console.error("getOrCreateUser exception:", e.message);
+      console.error("API getOrCreateUser Error:", e.message);
       throw e;
     }
   },
 
   async getMiningStatus(telegramId: number) {
+    if (!supabase) return { energy: 1000, max_energy: 1000, tap_value: 1 };
     try {
       const { data, error } = await supabase
         .from('mining_status')
@@ -99,16 +99,17 @@ export const api = {
   },
 
   async updateBalanceAndEnergy(telegramId: number, bpEarned: number, energyUsed: number) {
+    if (!supabase) return;
     try {
-      // Standardizes on your custom RPCs (make sure they exist in Supabase SQL editor)
       await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
       await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
     } catch (e) {
-      console.error("Sync failed:", e);
+      console.error("Sync to Supabase failed:", e);
     }
   },
 
   async getReferralCount(telegramId: number): Promise<number> {
+    if (!supabase) return 0;
     try {
       const { count, error } = await supabase
         .from('referrals')
@@ -121,6 +122,7 @@ export const api = {
   },
 
   async getTasks(telegramId: number) {
+    if (!supabase) return [];
     try {
       const { data, error } = await supabase
         .from('cultural_tasks')
@@ -134,6 +136,7 @@ export const api = {
   },
 
   async completeTask(telegramId: number, taskId: number, bpReward: number, culturalBpReward: number) {
+    if (!supabase) return { success: false };
     try {
       await supabase
         .from('task_completions')
