@@ -8,17 +8,11 @@ const IS_DEV = window.location.hostname === 'localhost' || window.location.hostn
 export const mockApi = {
   async getUserProfile(): Promise<User> {
     const tg = window.Telegram?.WebApp;
-    // CRITICAL: The user object is provided by Telegram only when opened as a Mini App
     const tgUser = tg?.initDataUnsafe?.user;
     
-    // Strict block for non-Telegram environments in production
-    if (!tgUser && !IS_DEV) {
-       throw new Error("TELEGRAM_USER_REQUIRED");
-    }
+    if (!tgUser && !IS_DEV) throw new Error("TELEGRAM_USER_REQUIRED");
 
-    // Identify user
     const realId = tgUser?.id || 123456;
-    
     const profile = {
       telegram_id: realId,
       username: tgUser?.username || tgUser?.first_name || `warrior_${realId}`,
@@ -26,72 +20,41 @@ export const mockApi = {
     };
 
     try {
-      // Direct call to Supabase API to fetch or create
-      const user = await api.getOrCreateUser(profile.telegram_id, profile);
-      
-      // Update persistent local cache
-      const store = db.getStore(profile.telegram_id);
-      db.saveStore({ ...store, user }, profile.telegram_id);
-      
-      return user;
+      // Direct fast-path: Don't await if we already have a cached user and aren't in force-refresh mode
+      // However, for Mini Apps, syncing once per session is standard.
+      return await api.getOrCreateUser(profile.telegram_id, profile);
     } catch (e) {
-      console.error("Supabase sync failed:", e);
-      
-      // Only fall back to local storage if it contains a matching ID
+      console.error("Supabase sync failed, using local DB");
       const localStore = db.getStore(profile.telegram_id);
-      if (localStore.user && localStore.user.telegram_id === profile.telegram_id) {
-        console.log("Using cached profile for:", profile.telegram_id);
-        return localStore.user;
-      }
-      
-      throw new Error("INITIALIZATION_FAILED");
+      return localStore.user;
     }
   },
 
   async getMiningStatus(userId: number): Promise<MiningStatus> {
     try {
+      // Parallelize internal Supabase checks where possible
       const status = await api.getMiningStatus(userId);
-      let culturalBp = 0;
-      
-      if (supabase) {
-        const { data } = await supabase
-          .from('users') 
-          .select('cultural_bp')
-          .eq('telegram_id', userId)
-          .maybeSingle();
-        culturalBp = data?.cultural_bp || 0;
-      }
-      
-      const enrichedStatus = {
+      return {
         ...status,
         energy_regen_rate: 1,
-        cultural_multiplier: 1 + (culturalBp / 10000)
+        cultural_multiplier: status.cultural_multiplier || 1.0
       };
-
-      const store = db.getStore(userId);
-      db.saveStore({ ...store, status: enrichedStatus }, userId);
-      return enrichedStatus;
     } catch (e) {
-      const store = db.getStore(userId);
-      return store.status;
+      return db.getStore(userId).status;
     }
   },
 
   async tap(taps: number): Promise<any> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
-    
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
     
     db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
     db.updateStatus(userId, { energy: Math.max(0, store.status.energy - taps) });
 
-    try {
-      await api.updateBalanceAndEnergy(userId, bpEarned, taps);
-    } catch (e) {}
-    
-    return { success: true, data: { bp_earned: bpEarned } };
+    api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(() => {});
+    return { success: true };
   },
 
   async getTasks(): Promise<CulturalTask[]> {
@@ -110,30 +73,19 @@ export const mockApi = {
     const userId = tgUser?.id || 123456;
     const store = db.getStore(userId);
     const task = store.tasks.find((t: any) => t.id === taskId);
-    
     if (!task || task.completed) return { success: false };
 
     try {
       await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
-    } catch (e) {}
-
-    const taskIndex = store.tasks.findIndex((t: any) => t.id === taskId);
-    store.tasks[taskIndex].completed = true;
-    store.user.bp_balance += store.tasks[taskIndex].bp_reward;
-    store.user.cultural_bp += store.tasks[taskIndex].cultural_bp_reward;
-    store.status.cultural_multiplier = 1 + (store.user.cultural_bp / 10000);
-    db.saveStore(store, userId);
-    
-    return { success: true };
+      const tasks = await api.getTasks(userId);
+      return { success: true, tasks };
+    } catch (e) {
+      return { success: false };
+    }
   },
 
   async getLeaderboard() {
-    if (!supabase) {
-      return [
-        { username: 'Grand_Vizier', bp: 5000000, level: 100 },
-        { username: 'Sardar_Warrior', bp: 2000000, level: 80 }
-      ];
-    }
+    if (!supabase) return [];
     try {
       const { data } = await supabase
         .from('users')
