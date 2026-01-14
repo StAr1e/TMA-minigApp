@@ -15,24 +15,38 @@ export const mockApi = {
     const realId = tgUser?.id || 123456;
     const profile = {
       telegram_id: realId,
-      username: tgUser?.username || tgUser?.first_name || `warrior_${realId}`,
+      username: tgUser?.username || tgUser?.first_name || `user_${realId}`,
       first_name: tgUser?.first_name || 'Warrior'
     };
 
     try {
-      // Direct fast-path: Don't await if we already have a cached user and aren't in force-refresh mode
-      // However, for Mini Apps, syncing once per session is standard.
-      return await api.getOrCreateUser(profile.telegram_id, profile);
+      // Sync with Supabase (Background update for existing users)
+      const user = await api.getOrCreateUser(profile.telegram_id, profile);
+      
+      // Update local storage
+      const store = db.getStore(profile.telegram_id);
+      db.saveStore({ ...store, user }, profile.telegram_id);
+      
+      return user;
     } catch (e) {
-      console.error("Supabase sync failed, using local DB");
+      console.warn("Supabase sync failed, using local or mock data");
       const localStore = db.getStore(profile.telegram_id);
-      return localStore.user;
+      if (localStore.user.telegram_id === realId) return localStore.user;
+      
+      // Fallback object for UI continuity
+      return {
+        telegram_id: realId,
+        username: profile.username,
+        bp_balance: 0,
+        cultural_bp: 0,
+        level: 1,
+        referral_code: ''
+      };
     }
   },
 
   async getMiningStatus(userId: number): Promise<MiningStatus> {
     try {
-      // Parallelize internal Supabase checks where possible
       const status = await api.getMiningStatus(userId);
       return {
         ...status,
@@ -71,14 +85,13 @@ export const mockApi = {
   async completeTask(taskId: number): Promise<any> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
-    const store = db.getStore(userId);
-    const task = store.tasks.find((t: any) => t.id === taskId);
-    if (!task || task.completed) return { success: false };
-
     try {
+      const store = db.getStore(userId);
+      const task = store.tasks.find((t: any) => t.id === taskId);
+      if (!task || task.completed) return { success: false };
+      
       await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
-      const tasks = await api.getTasks(userId);
-      return { success: true, tasks };
+      return { success: true };
     } catch (e) {
       return { success: false };
     }

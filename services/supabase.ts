@@ -1,27 +1,17 @@
 
 import { createClient } from '@supabase/supabase-js';
 
-// Access standard environment variables directly
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
 
-// Initialize Supabase only if credentials exist
 export const supabase = (SUPABASE_URL && SUPABASE_ANON_KEY) 
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
   : null;
 
-// Developer feedback for local environment
-if (!supabase && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-  console.warn("Database keys (SUPABASE_URL/SUPABASE_ANON_KEY) missing from .env. Some features will be disabled.");
-}
-
 export const api = {
   async sendBotNotification(chat_id: number, text: string) {
-    if (!BOT_TOKEN) {
-      console.warn("Notification skipped: BOT_TOKEN missing from environment.");
-      return;
-    }
+    if (!BOT_TOKEN) return;
     try {
       await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
         method: 'POST',
@@ -34,10 +24,14 @@ export const api = {
   },
 
   async getOrCreateUser(telegramId: number, profile: any) {
-    if (!supabase) throw new Error("Database not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.");
+    if (!supabase) throw new Error("Database not configured.");
     
     try {
-      // 1. Attempt to fetch existing user
+      // Use profile from Telegram as the primary identity
+      const telegramUsername = profile.username || profile.first_name || `user_${telegramId}`;
+      const firstName = profile.first_name || 'Warrior';
+
+      // 1. Check for existing user
       let { data: user, error } = await supabase
         .from('users')
         .select('*')
@@ -46,19 +40,16 @@ export const api = {
 
       if (error) throw error;
 
-      // 2. If user doesn't exist, create them with Telegram profile data
+      // 2. Create if not exists
       if (!user) {
         const referralCode = `BALOCH_${Math.random().toString(36).substring(7).toUpperCase()}`;
         
-        // Use Telegram's username if available, otherwise fallback
-        const finalUsername = profile.username || profile.first_name || `warrior_${telegramId}`;
-
         const { data: newUser, error: createError } = await supabase
           .from('users')
           .insert([{ 
             telegram_id: telegramId, 
-            username: finalUsername, 
-            first_name: profile.first_name || 'Warrior',
+            username: telegramUsername, 
+            first_name: firstName,
             bp_balance: 0, 
             cultural_bp: 0, 
             level: 1, 
@@ -69,28 +60,25 @@ export const api = {
         
         if (createError) throw createError;
         
-        // Initialize mining status immediately
-        try { 
-          await supabase.from('mining_status').insert([{ 
+        // Parallel setup tasks
+        await Promise.all([
+          supabase.from('mining_status').insert([{ 
             telegram_id: telegramId, 
             energy: 1000, 
             max_energy: 1000, 
             tap_value: 1 
-          }]); 
-        } catch (e) {
-          console.error("Mining status init failed", e);
-        }
+          }]),
+          this.sendBotNotification(telegramId, `Welcome *${firstName}*! 🪙 Your tribal journey has begun.`)
+        ]);
 
-        // Welcome notification
-        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your tribal journey has been initialized in our database.`);
         return newUser;
       }
       
-      // 3. Optional: Update username if it changed in Telegram
-      if (profile.username && user.username !== profile.username) {
+      // 3. Update profile if Telegram info changed (Sync)
+      if (user.username !== telegramUsername || user.first_name !== firstName) {
         const { data: updatedUser } = await supabase
           .from('users')
-          .update({ username: profile.username })
+          .update({ username: telegramUsername, first_name: firstName })
           .eq('telegram_id', telegramId)
           .select()
           .single();
@@ -105,7 +93,7 @@ export const api = {
   },
 
   async getMiningStatus(telegramId: number) {
-    if (!supabase) return { energy: 1000, max_energy: 1000, tap_value: 1 };
+    if (!supabase) return { energy: 1000, max_energy: 1000, tap_value: 1, cultural_multiplier: 1.0 };
     try {
       const { data, error } = await supabase
         .from('mining_status')
@@ -114,9 +102,9 @@ export const api = {
         .maybeSingle();
       
       if (error) throw error;
-      return data || { energy: 1000, max_energy: 1000, tap_value: 1 };
+      return data || { energy: 1000, max_energy: 1000, tap_value: 1, cultural_multiplier: 1.0 };
     } catch (e) {
-      return { energy: 1000, max_energy: 1000, tap_value: 1 };
+      return { energy: 1000, max_energy: 1000, tap_value: 1, cultural_multiplier: 1.0 };
     }
   },
 
@@ -125,15 +113,13 @@ export const api = {
     try {
       await supabase.rpc('increment_bp', { t_id: telegramId, earned: bpEarned });
       await supabase.rpc('decrement_energy', { t_id: telegramId, used: energyUsed });
-    } catch (e) {
-      console.error("Sync to Supabase failed:", e);
-    }
+    } catch (e) {}
   },
 
   async getReferralCount(telegramId: number): Promise<number> {
     if (!supabase) return 0;
     try {
-      const { count, error } = await supabase
+      const { count } = await supabase
         .from('referrals')
         .select('*', { count: 'exact', head: true })
         .eq('referrer_id', telegramId);
@@ -146,11 +132,10 @@ export const api = {
   async getTasks(telegramId: number) {
     if (!supabase) return [];
     try {
-      const { data, error } = await supabase
+      const { data } = await supabase
         .from('cultural_tasks')
         .select('*, task_completions(id)')
         .eq('task_completions.user_id', telegramId);
-      if (error) throw error;
       return (data || []).map((t: any) => ({ ...t, completed: t.task_completions?.length > 0 }));
     } catch (e) {
       return [];
@@ -160,19 +145,10 @@ export const api = {
   async completeTask(telegramId: number, taskId: number, bpReward: number, culturalBpReward: number) {
     if (!supabase) return { success: false };
     try {
-      await supabase
-        .from('task_completions')
-        .insert([{ user_id: telegramId, task_id: taskId }]);
-      
-      await supabase.rpc('reward_user', {
-        t_id: telegramId,
-        bp: bpReward,
-        cbp: culturalBpReward
-      });
-
+      await supabase.from('task_completions').insert([{ user_id: telegramId, task_id: taskId }]);
+      await supabase.rpc('reward_user', { t_id: telegramId, bp: bpReward, cbp: culturalBpReward });
       return { success: true };
     } catch (e) {
-      console.error("Complete task failed", e);
       return { success: false };
     }
   }

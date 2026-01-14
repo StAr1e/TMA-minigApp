@@ -26,28 +26,30 @@ const App: React.FC = () => {
     }
 
     const init = async () => {
+      const tgUser = tg?.initDataUnsafe?.user;
+      
+      // 1. INSTANT UI FEEDBACK: Use Telegram data immediately
+      if (tgUser) {
+        setUser({
+          telegram_id: tgUser.id,
+          username: tgUser.username || tgUser.first_name || `user_${tgUser.id}`,
+          bp_balance: 0,
+          cultural_bp: 0,
+          level: 1,
+          referral_code: ''
+        });
+      }
+
       try {
         setLoading(true);
         
-        // Instant Preview: Set profile from Telegram data immediately while we sync
-        const tgUser = tg?.initDataUnsafe?.user;
-        if (tgUser) {
-          setUser({
-            telegram_id: tgUser.id,
-            username: tgUser.username || tgUser.first_name || 'Warrior',
-            bp_balance: 0,
-            cultural_bp: 0,
-            level: 1,
-            referral_code: ''
-          });
-        }
-
-        // Run API calls in parallel to maximize speed
+        // 2. PARALLEL SYNC: Fetch real data from Supabase/API
         const [userData, statusData] = await Promise.all([
           mockApi.getUserProfile(),
           mockApi.getMiningStatus(tgUser?.id || 123456)
         ]);
         
+        // Update with full server data (balances, levels, etc.)
         setUser(userData);
         setStatus(statusData);
         
@@ -59,7 +61,8 @@ const App: React.FC = () => {
         if (err.message === "TELEGRAM_USER_REQUIRED") {
           setError("PLEASE_OPEN_IN_TELEGRAM");
         } else {
-          setError("CONNECTION_ERROR");
+          // If network fails but we have TG user, we can still show the UI in offline mode
+          if (!tgUser) setError("CONNECTION_ERROR");
         }
       } finally {
         setLoading(false);
@@ -112,14 +115,15 @@ const App: React.FC = () => {
     );
   }
 
+  // Only show full loader if we have NO user data at all
   if (loading && !user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
         <div className="relative">
            <div className="w-16 h-16 border-4 border-orange-500/10 border-t-orange-500 rounded-full animate-spin"></div>
         </div>
-        <div className="mt-8 flex flex-col items-center gap-2">
-           <p className="text-slate-200 font-black tracking-widest uppercase text-xs">Entering Arena</p>
+        <div className="mt-8">
+           <p className="text-slate-200 font-black tracking-widest uppercase text-[10px] animate-pulse">Establishing Uplink</p>
         </div>
       </div>
     );
@@ -141,17 +145,17 @@ const App: React.FC = () => {
     <div className="flex flex-col h-screen bg-transparent text-white overflow-hidden max-w-md mx-auto relative">
       <div className="px-5 pt-6 pb-2 flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg">
-             <span className="font-black text-orange-500">{user?.username?.charAt(0).toUpperCase()}</span>
+          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg overflow-hidden">
+             <span className="font-black text-orange-500 text-lg">{user?.username?.charAt(0).toUpperCase()}</span>
           </div>
           <div className="flex flex-col">
-            <span className="font-extrabold text-sm truncate max-w-[140px]">{user?.username}</span>
+            <span className="font-extrabold text-sm truncate max-w-[140px] text-white">{user?.username}</span>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Warrior Rank</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="glass px-3 py-1.5 rounded-xl border border-white/5">
-            <span className="text-[11px] font-black text-white uppercase">Level {user?.level}</span>
+          <div className="glass px-3 py-1.5 rounded-xl border border-white/5 bg-slate-900/40">
+            <span className="text-[11px] font-black text-white uppercase tracking-tighter">Level {user?.level}</span>
           </div>
         </div>
       </div>
@@ -161,7 +165,7 @@ const App: React.FC = () => {
       </div>
 
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[92%] max-w-[400px] z-50">
-        <div className="glass rounded-[2rem] p-2 flex justify-between items-center shadow-2xl border border-white/10">
+        <div className="glass rounded-[2rem] p-2 flex justify-between items-center shadow-2xl border border-white/10 bg-slate-900/80">
           <NavButton active={activeTab === 'home'} onClick={() => setActiveTab('home')} icon={<Home size={22} />} />
           <NavButton active={activeTab === 'tasks'} onClick={() => setActiveTab('tasks')} icon={<Book size={22} />} />
           <NavButton active={activeTab === 'leaderboard'} onClick={() => setActiveTab('leaderboard')} icon={<Trophy size={22} />} />
