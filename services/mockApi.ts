@@ -8,16 +8,15 @@ const IS_DEV = window.location.hostname === 'localhost' || window.location.hostn
 export const mockApi = {
   async getUserProfile(): Promise<User> {
     const tg = window.Telegram?.WebApp;
-    // This is the CRITICAL source of truth for Telegram Mini Apps
+    // CRITICAL: The user object is provided by Telegram only when opened as a Mini App
     const tgUser = tg?.initDataUnsafe?.user;
     
-    // If no Telegram user is found and we aren't in a dev environment, 
-    // we must block access as we cannot identify the user.
+    // Strict block for non-Telegram environments in production
     if (!tgUser && !IS_DEV) {
        throw new Error("TELEGRAM_USER_REQUIRED");
     }
 
-    // Use actual Telegram ID, fallback to mock ID only for local testing
+    // Identify user
     const realId = tgUser?.id || 123456;
     
     const profile = {
@@ -27,20 +26,25 @@ export const mockApi = {
     };
 
     try {
-      // Sync with Supabase: This creates the user and mining record if missing
+      // Direct call to Supabase API to fetch or create
       const user = await api.getOrCreateUser(profile.telegram_id, profile);
       
-      // Update local persistent store for offline/cache capability
+      // Update persistent local cache
       const store = db.getStore(profile.telegram_id);
       db.saveStore({ ...store, user }, profile.telegram_id);
       
       return user;
     } catch (e) {
-      console.warn("Supabase profile sync failed, falling back to local cache:", e);
+      console.error("Supabase sync failed:", e);
+      
+      // Only fall back to local storage if it contains a matching ID
       const localStore = db.getStore(profile.telegram_id);
-      // If we have nothing even in local storage, we must throw
-      if (!localStore.user.telegram_id) throw new Error("INITIALIZATION_FAILED");
-      return localStore.user;
+      if (localStore.user && localStore.user.telegram_id === profile.telegram_id) {
+        console.log("Using cached profile for:", profile.telegram_id);
+        return localStore.user;
+      }
+      
+      throw new Error("INITIALIZATION_FAILED");
     }
   },
 
@@ -68,7 +72,8 @@ export const mockApi = {
       db.saveStore({ ...store, status: enrichedStatus }, userId);
       return enrichedStatus;
     } catch (e) {
-      return db.getStore(userId).status;
+      const store = db.getStore(userId);
+      return store.status;
     }
   },
 

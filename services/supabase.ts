@@ -34,22 +34,30 @@ export const api = {
   },
 
   async getOrCreateUser(telegramId: number, profile: any) {
-    if (!supabase) throw new Error("Database not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY in your environment.");
+    if (!supabase) throw new Error("Database not configured. Please set SUPABASE_URL and SUPABASE_ANON_KEY.");
     
     try {
+      // 1. Attempt to fetch existing user
       let { data: user, error } = await supabase
         .from('users')
         .select('*')
         .eq('telegram_id', telegramId)
         .maybeSingle();
 
+      if (error) throw error;
+
+      // 2. If user doesn't exist, create them with Telegram profile data
       if (!user) {
         const referralCode = `BALOCH_${Math.random().toString(36).substring(7).toUpperCase()}`;
+        
+        // Use Telegram's username if available, otherwise fallback
+        const finalUsername = profile.username || profile.first_name || `warrior_${telegramId}`;
+
         const { data: newUser, error: createError } = await supabase
           .from('users')
           .insert([{ 
             telegram_id: telegramId, 
-            username: profile.username || `warrior_${telegramId}`, 
+            username: finalUsername, 
             first_name: profile.first_name || 'Warrior',
             bp_balance: 0, 
             cultural_bp: 0, 
@@ -61,7 +69,7 @@ export const api = {
         
         if (createError) throw createError;
         
-        // Initialize mining status
+        // Initialize mining status immediately
         try { 
           await supabase.from('mining_status').insert([{ 
             telegram_id: telegramId, 
@@ -69,12 +77,26 @@ export const api = {
             max_energy: 1000, 
             tap_value: 1 
           }]); 
-        } catch (e) {}
+        } catch (e) {
+          console.error("Mining status init failed", e);
+        }
 
-        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your tribal journey begins.`);
+        // Welcome notification
+        await this.sendBotNotification(telegramId, `Welcome *${profile.first_name || 'Warrior'}*! 🪙 Your tribal journey has been initialized in our database.`);
         return newUser;
       }
       
+      // 3. Optional: Update username if it changed in Telegram
+      if (profile.username && user.username !== profile.username) {
+        const { data: updatedUser } = await supabase
+          .from('users')
+          .update({ username: profile.username })
+          .eq('telegram_id', telegramId)
+          .select()
+          .single();
+        if (updatedUser) return updatedUser;
+      }
+
       return user;
     } catch (e: any) {
       console.error("API getOrCreateUser Error:", e.message);
