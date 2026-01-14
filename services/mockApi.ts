@@ -20,20 +20,20 @@ export const mockApi = {
     };
 
     try {
-      // Sync with Supabase (Background update for existing users)
+      // Absolute sync with Supabase: Every login updates the server with current Telegram data
       const user = await api.getOrCreateUser(profile.telegram_id, profile);
       
-      // Update local storage
+      // Persist to local cache for offline/instant reload
       const store = db.getStore(profile.telegram_id);
       db.saveStore({ ...store, user }, profile.telegram_id);
       
       return user;
     } catch (e) {
-      console.warn("Supabase sync failed, using local or mock data");
+      console.warn("Supabase handshake failed, using cache");
       const localStore = db.getStore(profile.telegram_id);
       if (localStore.user.telegram_id === realId) return localStore.user;
       
-      // Fallback object for UI continuity
+      // Ultimate fallback if nothing else exists
       return {
         telegram_id: realId,
         username: profile.username,
@@ -64,9 +64,11 @@ export const mockApi = {
     const store = db.getStore(userId);
     const bpEarned = Math.floor(taps * (store.status.cultural_multiplier || 1));
     
+    // Save to local DB first (instant)
     db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
     db.updateStatus(userId, { energy: Math.max(0, store.status.energy - taps) });
 
+    // Background sync to remote DB
     api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(() => {});
     return { success: true };
   },

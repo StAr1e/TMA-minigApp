@@ -28,7 +28,8 @@ const App: React.FC = () => {
     const init = async () => {
       const tgUser = tg?.initDataUnsafe?.user;
       
-      // 1. INSTANT UI FEEDBACK: Use Telegram data immediately
+      // 1. INSTANT IDENTITY PROJECTION
+      // We show the real name immediately from Telegram metadata
       if (tgUser) {
         setUser({
           telegram_id: tgUser.id,
@@ -43,13 +44,14 @@ const App: React.FC = () => {
       try {
         setLoading(true);
         
-        // 2. PARALLEL SYNC: Fetch real data from Supabase/API
+        // 2. PARALLEL BACKGROUND SYNC
+        // Fetch server-side balances, tasks, and mining energy
         const [userData, statusData] = await Promise.all([
           mockApi.getUserProfile(),
           mockApi.getMiningStatus(tgUser?.id || 123456)
         ]);
         
-        // Update with full server data (balances, levels, etc.)
+        // Merge server data with local UI state
         setUser(userData);
         setStatus(statusData);
         
@@ -61,7 +63,7 @@ const App: React.FC = () => {
         if (err.message === "TELEGRAM_USER_REQUIRED") {
           setError("PLEASE_OPEN_IN_TELEGRAM");
         } else {
-          // If network fails but we have TG user, we can still show the UI in offline mode
+          // Keep showing initial user data if network fails
           if (!tgUser) setError("CONNECTION_ERROR");
         }
       } finally {
@@ -84,7 +86,7 @@ const App: React.FC = () => {
   const handleTap = async (count: number) => {
     if (!status || status.energy < count) return;
     
-    const multiplier = status.cultural_multiplier || 1;
+    const multiplier = status.cultural_multiplier || 1.0;
     const bpEarned = Math.floor(count * multiplier);
     
     setUser(prev => prev ? { ...prev, bp_balance: prev.bp_balance + bpEarned } : null);
@@ -115,16 +117,12 @@ const App: React.FC = () => {
     );
   }
 
-  // Only show full loader if we have NO user data at all
+  // Loader only shows if we have no user data (likely non-Telegram or fresh dev install)
   if (loading && !user) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
-        <div className="relative">
-           <div className="w-16 h-16 border-4 border-orange-500/10 border-t-orange-500 rounded-full animate-spin"></div>
-        </div>
-        <div className="mt-8">
-           <p className="text-slate-200 font-black tracking-widest uppercase text-[10px] animate-pulse">Establishing Uplink</p>
-        </div>
+        <div className="w-16 h-16 border-4 border-orange-500/10 border-t-orange-500 rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-400 font-black tracking-widest uppercase text-[10px] animate-pulse">Establishing Connection</p>
       </div>
     );
   }
@@ -145,12 +143,18 @@ const App: React.FC = () => {
     <div className="flex flex-col h-screen bg-transparent text-white overflow-hidden max-w-md mx-auto relative">
       <div className="px-5 pt-6 pb-2 flex justify-between items-center z-20">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg overflow-hidden">
-             <span className="font-black text-orange-500 text-lg">{user?.username?.charAt(0).toUpperCase()}</span>
+          <div className="w-10 h-10 rounded-2xl bg-slate-800 flex items-center justify-center border border-white/10 shadow-lg overflow-hidden relative">
+             <div className="absolute inset-0 bg-orange-500/5 animate-pulse"></div>
+             <span className="font-black text-orange-500 text-lg z-10">{user?.username?.charAt(0).toUpperCase()}</span>
           </div>
           <div className="flex flex-col">
-            <span className="font-extrabold text-sm truncate max-w-[140px] text-white">{user?.username}</span>
-            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Warrior Rank</span>
+            <span className="font-extrabold text-sm truncate max-w-[140px] text-white">
+              {user?.username}
+            </span>
+            <div className="flex items-center gap-1">
+              <div className="w-1 h-1 bg-orange-500 rounded-full"></div>
+              <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Warrior Rank</span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -180,10 +184,10 @@ const App: React.FC = () => {
 const NavButton: React.FC<{ active: boolean, onClick: () => void, icon: React.ReactNode }> = ({ active, onClick, icon }) => (
   <button 
     onClick={onClick}
-    className={`relative flex flex-col items-center justify-center w-14 h-14 transition-all duration-300 rounded-2xl ${active ? 'text-orange-500 bg-orange-500/10' : 'text-slate-500'}`}
+    className={`relative flex flex-col items-center justify-center w-14 h-14 transition-all duration-300 rounded-2xl ${active ? 'text-orange-500 bg-orange-500/10 shadow-inner shadow-orange-500/10' : 'text-slate-500'}`}
   >
     {icon}
-    {active && <div className="absolute -bottom-1 w-1 h-1 bg-orange-500 rounded-full"></div>}
+    {active && <div className="absolute -bottom-1 w-1 h-1 bg-orange-500 rounded-full animate-bounce"></div>}
   </button>
 );
 
