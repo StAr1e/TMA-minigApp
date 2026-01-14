@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Home, Book, Trophy, Wallet, User as UserIcon, Settings, Database, Users } from 'lucide-react';
+import { Home, Book, Trophy, Wallet, User as UserIcon, Users } from 'lucide-react';
 import { User, MiningStatus } from './types';
 import { mockApi } from './services/mockApi';
 import MiningView from './components/MiningView';
@@ -14,7 +14,6 @@ const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<MiningStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     if (window.Telegram?.WebApp) {
@@ -32,7 +31,6 @@ const App: React.FC = () => {
         setStatus(statusData);
       } catch (err: any) {
         console.error("Initialization failed", err);
-        setDbError("System sync failed. Please check your connection.");
       } finally {
         setLoading(false);
       }
@@ -63,7 +61,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (loading) {
+  if (loading || !user || !status) {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-slate-950">
         <div className="w-16 h-16 border-4 border-orange-500/20 border-t-orange-500 rounded-full animate-spin"></div>
@@ -74,12 +72,12 @@ const App: React.FC = () => {
 
   const renderContent = () => {
     switch (activeTab) {
-      case 'home': return <MiningView user={user!} status={status!} onTap={handleTap} />;
+      case 'home': return <MiningView user={user} status={status} onTap={handleTap} />;
       case 'tasks': return <TasksView />;
-      case 'leaderboard': return <LeaderboardView user={user!} />;
-      case 'friends': return <ReferralView user={user!} />;
-      case 'wallet': return <WalletView user={user!} />;
-      default: return <MiningView user={user!} status={status!} onTap={handleTap} />;
+      case 'leaderboard': return <LeaderboardView user={user} />;
+      case 'friends': return <ReferralView user={user} />;
+      case 'wallet': return <WalletView user={user} />;
+      default: return <MiningView user={user} status={status} onTap={handleTap} />;
     }
   };
 
@@ -92,14 +90,14 @@ const App: React.FC = () => {
              <UserIcon size={18} className="text-orange-400" />
           </div>
           <div className="flex flex-col">
-            <span className="font-extrabold text-sm tracking-tight">{user?.username}</span>
+            <span className="font-extrabold text-sm tracking-tight">{user.username}</span>
             <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Warrior Rank</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
           <div className="glass px-3 py-1.5 rounded-xl flex items-center gap-2">
             <div className="w-2 h-2 rounded-full bg-orange-500 animate-pulse"></div>
-            <span className="text-[11px] font-black text-white">LVL {user?.level}</span>
+            <span className="text-[11px] font-black text-white">LVL {user.level}</span>
           </div>
         </div>
       </div>
