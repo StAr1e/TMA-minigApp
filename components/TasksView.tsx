@@ -10,9 +10,16 @@ const TasksView: React.FC = () => {
   const [completingId, setCompletingId] = useState<number | null>(null);
 
   const fetchTasks = async () => {
-    const data = await mockApi.getTasks();
-    setTasks(data);
-    setLoading(false);
+    try {
+      setLoading(true);
+      const data = await mockApi.getTasks();
+      setTasks(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error("Fetch tasks failed:", err);
+      setTasks([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -20,13 +27,18 @@ const TasksView: React.FC = () => {
   }, []);
 
   const handleComplete = async (id: number) => {
+    if (completingId !== null) return;
     setCompletingId(id);
-    // Fix: Convert number id to string to match mockApi.completeTask signature
-    const res = await mockApi.completeTask(String(id));
-    if (res.success) {
-      await fetchTasks();
+    try {
+      const res = await mockApi.completeTask(String(id));
+      if (res.success) {
+        await fetchTasks();
+      }
+    } catch (err) {
+      console.error("Complete task UI error:", err);
+    } finally {
+      setCompletingId(null);
     }
-    setCompletingId(null);
   };
 
   const getIcon = (type: string) => {
@@ -55,50 +67,57 @@ const TasksView: React.FC = () => {
           [1,2,3].map(i => (
             <div key={i} className="h-28 w-full glass animate-pulse rounded-[2rem]"></div>
           ))
+        ) : tasks.length === 0 ? (
+          <div className="text-center py-12 glass rounded-[2rem]">
+            <Award className="mx-auto text-slate-700 mb-4" size={48} />
+            <p className="text-slate-500 font-bold uppercase tracking-widest text-xs">No Quests Available</p>
+          </div>
         ) : (
-          tasks.map(task => (
-            <div 
-              key={task.id} 
-              onClick={() => !task.completed && handleComplete(task.id)}
-              className={`p-5 rounded-[2.2rem] glass transition-all active:scale-95 cursor-pointer flex items-center justify-between group ${
-                task.completed ? 'opacity-40 grayscale-[0.5] pointer-events-none' : 'hover:border-orange-500/30'
-              }`}
-            >
-              <div className="flex items-center gap-5">
-                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border border-white/5 ${
-                  task.type === 'quiz' ? 'bg-blue-500/10' : 
-                  task.type === 'music' ? 'bg-purple-500/10' : 'bg-orange-500/10'
-                }`}>
-                  {completingId === task.id ? <Loader2 className="animate-spin text-orange-500" size={22} /> : getIcon(task.type)}
-                </div>
-                <div>
-                  <h3 className="font-extrabold text-[15px] mb-1.5">{task.title}</h3>
-                  <div className="flex items-center gap-3">
-                    <div className="bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/10">
-                       <span className="text-[10px] font-black text-orange-400">+{task.bp_reward} BP</span>
-                    </div>
-                    <div className="bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/10">
-                       <span className="text-[10px] font-black text-purple-300">+{task.cultural_bp_reward} CBP</span>
+          tasks.map(task => {
+            if (!task) return null;
+            return (
+              <div 
+                key={task.id} 
+                onClick={() => !task.completed && handleComplete(task.id)}
+                className={`p-5 rounded-[2.2rem] glass transition-all active:scale-95 cursor-pointer flex items-center justify-between group ${
+                  task.completed ? 'opacity-40 grayscale-[0.5] pointer-events-none' : 'hover:border-orange-500/30'
+                }`}
+              >
+                <div className="flex items-center gap-5">
+                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center border border-white/5 ${
+                    task.type === 'quiz' ? 'bg-blue-500/10' : 
+                    task.type === 'music' ? 'bg-purple-500/10' : 'bg-orange-500/10'
+                  }`}>
+                    {completingId === task.id ? <Loader2 className="animate-spin text-orange-500" size={22} /> : getIcon(task.type || '')}
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-[15px] mb-1.5">{task.title || 'Tribal Quest'}</h3>
+                    <div className="flex items-center gap-3">
+                      <div className="bg-orange-500/10 px-2.5 py-1 rounded-lg border border-orange-500/10">
+                         <span className="text-[10px] font-black text-orange-400">+{task.bp_reward || 0} BP</span>
+                      </div>
+                      <div className="bg-purple-500/10 px-2.5 py-1 rounded-lg border border-purple-500/10">
+                         <span className="text-[10px] font-black text-purple-300">+{task.cultural_bp_reward || 0} CBP</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {task.completed ? (
-                <div className="bg-green-500/20 p-2.5 rounded-2xl">
-                   <CheckCircle className="text-green-400" size={22} />
-                </div>
-              ) : (
-                <div className="bg-slate-800/80 p-3 rounded-2xl border border-white/5 group-hover:bg-orange-500/20 group-hover:border-orange-500/30 transition-colors">
-                  <ChevronRight size={18} className="text-slate-400 group-hover:text-orange-400" />
-                </div>
-              )}
-            </div>
-          ))
+                {task.completed ? (
+                  <div className="bg-green-500/20 p-2.5 rounded-2xl">
+                     <CheckCircle className="text-green-400" size={22} />
+                  </div>
+                ) : (
+                  <div className="bg-slate-800/80 p-3 rounded-2xl border border-white/5 group-hover:bg-orange-500/20 group-hover:border-orange-500/30 transition-colors">
+                    <ChevronRight size={18} className="text-slate-400 group-hover:text-orange-400" />
+                  </div>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 
-      {/* Info Tip */}
       <div className="mt-10 glass p-7 rounded-[2.5rem] relative overflow-hidden">
          <div className="absolute top-0 right-0 w-32 h-32 bg-orange-500/5 blur-3xl -mr-10 -mt-10"></div>
          <div className="flex items-center gap-3 mb-3">

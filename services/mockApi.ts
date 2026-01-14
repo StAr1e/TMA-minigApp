@@ -20,10 +20,7 @@ export const mockApi = {
     };
 
     try {
-      // Upsert user into Supabase
       const dbUser = await api.getOrCreateUser(profile.telegram_id, profile);
-
-      // Map database fields to frontend User type
       const user: User = {
         telegram_id: dbUser.telegram_id,
         username: dbUser.username || profile.username,
@@ -32,7 +29,6 @@ export const mockApi = {
         level: 1,
         referral_code: dbUser.telegram_id.toString() 
       };
-
       db.saveStore({ user }, realId);
       return user;
     } catch (e) {
@@ -54,7 +50,6 @@ export const mockApi = {
         cultural_multiplier: status.cultural_multiplier || 1.0
       };
     } catch (e) {
-      console.error("Mining status fetch error, using local fallback:", e);
       const store = db.getStore(userId);
       return store.status;
     }
@@ -80,22 +75,22 @@ export const mockApi = {
     const userId = tgUser?.id || 123456;
     try {
       const dbTasks = await api.getTasks(userId);
-      if (!dbTasks || dbTasks.length === 0) throw new Error("No tasks in DB");
+      if (!dbTasks || dbTasks.length === 0) return db.getStore(userId).tasks || [];
       
       return dbTasks.map((t: any) => ({
-        id: t.id,
-        title: t.title,
-        description: t.description,
-        bp_reward: t.reward,
-        cultural_bp_reward: t.cultural_flag ? 100 : 0,
-        completed: t.completed || false,
+        id: t.id || Math.random(),
+        title: t.title || 'Unknown Quest',
+        description: t.description || 'No description available.',
+        bp_reward: t.reward || t.bp_reward || 0,
+        cultural_bp_reward: t.cultural_flag ? 100 : (t.cultural_bp_reward || 0),
+        completed: !!t.completed,
         type: t.type || 'learn',
-        difficulty: 'medium',
-        category: 'general'
+        difficulty: t.difficulty || 'medium',
+        category: t.category || 'general'
       }));
     } catch (e) {
       const store = db.getStore(userId);
-      return store.tasks;
+      return store.tasks || [];
     }
   },
 
@@ -119,16 +114,19 @@ export const mockApi = {
     try {
       const { data } = await supabase
         .from('users')
-        .select('username, points, avatar_url')
+        .select('telegram_id, username, points, avatar_url')
         .order('points', { ascending: false })
-        .limit(10);
+        .limit(20);
+
       return (data || []).map(d => ({
-        username: d.username,
+        telegram_id: d.telegram_id,
+        username: d.username || 'Anonymous',
         bp: d.points || 0,
         level: 1,
         photo_url: d.avatar_url
       }));
     } catch (e) {
+      console.error("Leaderboard fetch error:", e);
       return [];
     }
   }
