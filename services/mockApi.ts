@@ -11,10 +11,6 @@ export const mockApi = {
     const tg = window.Telegram?.WebApp;
     const tgUser = tg?.initDataUnsafe?.user;
 
-    if (!tgUser && !IS_DEV) {
-      throw new Error("TELEGRAM_USER_REQUIRED");
-    }
-
     const realId = tgUser?.id || 123456;
     const profile = {
       telegram_id: realId,
@@ -24,26 +20,23 @@ export const mockApi = {
     };
 
     try {
-      // Upsert user into Supabase 'users' table
+      // Upsert user into Supabase
       const dbUser = await api.getOrCreateUser(profile.telegram_id, profile);
 
-      // Map database fields to frontend User type (mapping points -> bp_balance)
+      // Map database fields to frontend User type
       const user: User = {
         telegram_id: dbUser.telegram_id,
-        username: dbUser.username,
+        username: dbUser.username || profile.username,
         bp_balance: dbUser.points || 0,
         cultural_bp: dbUser.cultural_points || 0,
-        level: 1, // You could derive this from points later
-        referral_code: dbUser.id, // Using internal UUID as a simple ref code
-        // Fix: Removed photo_url property as it does not exist on User type
+        level: 1,
+        referral_code: dbUser.telegram_id.toString() 
       };
 
-      // Save in local store
       db.saveStore({ user }, realId);
-
       return user;
     } catch (e) {
-      console.error("Failed to fetch user from DB, falling back to local store", e);
+      console.error("Profile fetch error, using local fallback:", e);
       const localStore = db.getStore(realId);
       return localStore.user;
     }
@@ -54,13 +47,14 @@ export const mockApi = {
     try {
       const status = await api.getMiningStatus(userId);
       return {
-        energy: status.energy,
-        max_energy: status.max_energy,
+        energy: status.energy ?? 1000,
+        max_energy: status.max_energy ?? 1000,
         tap_value: status.tap_value || 1,
         energy_regen_rate: 1,
         cultural_multiplier: status.cultural_multiplier || 1.0
       };
     } catch (e) {
+      console.error("Mining status fetch error, using local fallback:", e);
       const store = db.getStore(userId);
       return store.status;
     }
@@ -72,14 +66,10 @@ export const mockApi = {
     const userId = tgUser?.id || 123456;
     const store = db.getStore(userId);
     const multiplier = store?.status?.cultural_multiplier || 1;
-
     const bpEarned = Math.floor(taps * multiplier);
 
-    // Update local store for instant UI feedback
     db.updateUser(userId, { bp_balance: (store.user.bp_balance || 0) + bpEarned });
-    
-    // Sync with database (points column)
-    api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(e => console.error(e));
+    api.updateBalanceAndEnergy(userId, bpEarned, taps).catch(e => console.error("Database sync tap error:", e));
 
     return { success: true, data: { bp_earned: bpEarned } };
   },
@@ -88,9 +78,10 @@ export const mockApi = {
   async getTasks(): Promise<CulturalTask[]> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
-
     try {
       const dbTasks = await api.getTasks(userId);
+      if (!dbTasks || dbTasks.length === 0) throw new Error("No tasks in DB");
+      
       return dbTasks.map((t: any) => ({
         id: t.id,
         title: t.title,
@@ -98,12 +89,13 @@ export const mockApi = {
         bp_reward: t.reward,
         cultural_bp_reward: t.cultural_flag ? 100 : 0,
         completed: t.completed || false,
-        type: t.type || 'general',
+        type: t.type || 'learn',
         difficulty: 'medium',
         category: 'general'
       }));
     } catch (e) {
-      return db.getStore(userId).tasks;
+      const store = db.getStore(userId);
+      return store.tasks;
     }
   },
 
@@ -111,16 +103,12 @@ export const mockApi = {
   async completeTask(taskId: string): Promise<{ success: boolean }> {
     const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const userId = tgUser?.id || 123456;
-
     try {
       const tasks = await this.getTasks();
       const task = tasks.find(t => String(t.id) === String(taskId));
       if (!task) return { success: false };
-
-      const res = await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
-      return res;
+      return await api.completeTask(userId, taskId, task.bp_reward, task.cultural_bp_reward);
     } catch (e) {
-      console.error("Complete task error:", e);
       return { success: false };
     }
   },
@@ -134,7 +122,6 @@ export const mockApi = {
         .select('username, points, avatar_url')
         .order('points', { ascending: false })
         .limit(10);
-
       return (data || []).map(d => ({
         username: d.username,
         bp: d.points || 0,
